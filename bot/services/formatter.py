@@ -9,10 +9,15 @@ CONNECTOR_DISPLAY = {
 }
 
 
-def _connectors_block(connectors_json: str) -> str:
-    try:
-        connectors = json.loads(connectors_json or "[]")
-    except (json.JSONDecodeError, TypeError):
+def _connectors_block(connectors_raw) -> str:
+    if isinstance(connectors_raw, list):
+        connectors = connectors_raw
+    elif isinstance(connectors_raw, str):
+        try:
+            connectors = json.loads(connectors_raw or "[]")
+        except (json.JSONDecodeError, TypeError):
+            connectors = []
+    else:
         connectors = []
     if not connectors:
         return "לא צוין"
@@ -22,7 +27,7 @@ def _connectors_block(connectors_json: str) -> str:
         display = CONNECTOR_DISPLAY.get(standard, CONNECTOR_DISPLAY["OTHER"])
         power = c.get("maxPower")
         if power is not None:
-            parts.append(f"{display} {float(power):.1f}kW")
+            parts.append(f"{display} {int(power)}kW")
         else:
             parts.append(display)
     return " | ".join(parts)

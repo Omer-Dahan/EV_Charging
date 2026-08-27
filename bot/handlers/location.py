@@ -55,6 +55,11 @@ MISSING_CITY_MESSAGE = (
 )
 ERROR_GENERIC = "❌ אירעה שגיאה. כדאי לנסות שוב בעוד מספר רגעים."
 ERROR_OUTSIDE_ISRAEL = "❌ המיקום שנשלח נמצא מחוץ לישראל. המאגר מכיל עמדות בארץ בלבד."
+MAP_CAPTION = (
+    "🗺️ מפת האזור: המיקום שלך מסומן באדום 🔴. "
+    "סמן ירוק עם ברק = עמדת טעינה אחת. "
+    "סמן ירוק עם מספר = מספר עמדות טעינה באותו אזור."
+)
 
 
 def render_station_card(session) -> tuple[str, list]:
@@ -70,7 +75,12 @@ def render_station_card(session) -> tuple[str, list]:
         location_name=session.location_name,
     )
     buttons = station_card_keyboard(
-        station["id"], idx, total, station["lat"], station["lng"]
+        station["id"],
+        idx,
+        total,
+        station["lat"],
+        station["lng"],
+        sort_by=getattr(session, "sort_by", "distance"),
     )
     return text, buttons
 
@@ -82,8 +92,9 @@ async def perform_search(
     radius_km: int,
     location_name: Optional[str] = None,
 ) -> list[dict]:
+    session = get_session(chat_id)
     user_settings = await get_user_settings(chat_id, settings.users_db_path)
-    results = await find_nearby(
+    results, all_results = await find_nearby(
         settings.db_path,
         lat,
         lng,
@@ -91,9 +102,11 @@ async def perform_search(
         connector_filter=user_settings.connector_filter,
         speed_filter=user_settings.speed_filter,
         max_price=user_settings.max_price,
+        sort_by=getattr(session, "sort_by", "distance"),
+        return_all=True,
     )
-    session = get_session(chat_id)
     session.results = results
+    session.all_results = all_results
     session.current_idx = 0
     session.user_lat = lat
     session.user_lng = lng
@@ -102,8 +115,8 @@ async def perform_search(
         session.location_name = location_name
 
     logger.info(
-        "search chat_id=%s lat=%.3f lng=%.3f radius=%s results=%d loc=%s",
-        chat_id, lat, lng, radius_km, len(results), session.location_name,
+        "search chat_id=%s lat=%.3f lng=%.3f radius=%s results=%d all=%d loc=%s sort_by=%s",
+        chat_id, lat, lng, radius_km, len(results), len(all_results), session.location_name, getattr(session, "sort_by", "distance"),
     )
     return results
 
@@ -124,7 +137,8 @@ async def send_map_image(
         try:
             await event.respond(
                 file=map_path,
-                message="🗺️ מפת האזור: המיקום המבוקש מסומן באדום 🔴, עמדות הטעינה בירוק 🟢.",
+                message=MAP_CAPTION,
+                force_document=True,
             )
         finally:
             try:
@@ -176,7 +190,7 @@ async def execute_search(
                 parse_mode="html",
             )
         else:
-            await send_map_image(event, lat, lng, radius_km, results)
+            await send_map_image(event, lat, lng, radius_km, session.all_results or results)
             text, buttons = render_station_card(session)
             result_msg = await event.respond(
                 text, buttons=buttons, parse_mode="html"

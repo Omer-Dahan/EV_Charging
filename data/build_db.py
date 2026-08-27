@@ -1043,12 +1043,22 @@ def build_database(db_path: str = DB_PATH) -> None:
                 location_connectors.get(matched_id, []),
                 st_conns
             )
-            # Ensure provider_name is populated if previously missing
+            # Ensure provider_name is Yellow when merged with Paz, and update name if needed
+            cur.execute("SELECT name FROM locations WHERE id = ?", (matched_id,))
+            row = cur.fetchone()
+            cur_name = (row[0] or "").strip() if row else ""
+            if not cur_name:
+                new_name = name
+            elif "פז" not in cur_name and "paz" not in cur_name.lower():
+                new_name = f"פז - {cur_name}"
+            else:
+                new_name = cur_name
+
             cur.execute("""
                 UPDATE locations
-                SET provider_name = COALESCE(provider_name, ?)
-                WHERE id = ? AND (provider_name IS NULL OR provider_name = '')
-            """, (st_provider, matched_id))
+                SET provider_name = ?, name = ?
+                WHERE id = ?
+            """, (st_provider, new_name, matched_id))
             paz_matched += 1
         else:
             if lat is None or lng is None:

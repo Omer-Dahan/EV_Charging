@@ -12,6 +12,7 @@ from bot.handlers.location import (
 )
 from bot.handlers.start import WELCOME_MESSAGE
 from bot.keyboards.inline import no_results_keyboard, welcome_keyboard
+from bot.services.station_search import sort_stations
 from bot.states import get_session
 
 logger = logging.getLogger(__name__)
@@ -130,5 +131,34 @@ def register_handlers(client: TelegramClient) -> None:
             await event.edit(text, buttons=buttons, parse_mode="html")
         except Exception:
             logger.exception("error handling range callback for chat_id=%s", chat_id)
+            await event.answer(ERROR_GENERIC, alert=True)
+
+    @client.on(events.CallbackQuery(pattern=rb"^sort:"))
+    async def handle_sort(event: events.CallbackQuery.Event) -> None:
+        chat_id = event.chat_id
+        data = event.data.decode("utf-8")
+        sort_by = data.split(":", 1)[1]
+
+        try:
+            session = get_session(chat_id)
+            if not session.results:
+                await event.answer("אין תוצאות להצגה", alert=False)
+                return
+
+            if session.sort_by == sort_by:
+                await event.answer(
+                    f"כבר ממוין לפי {'מהירות' if sort_by == 'speed' else 'מרחק'}"
+                )
+                return
+
+            session.sort_by = sort_by
+            session.results = sort_stations(session.results, sort_by=sort_by)
+            session.current_idx = 0
+
+            text, buttons = render_station_card(session)
+            await event.answer()
+            await event.edit(text, buttons=buttons, parse_mode="html")
+        except Exception:
+            logger.exception("error handling sort callback for chat_id=%s", chat_id)
             await event.answer(ERROR_GENERIC, alert=True)
 

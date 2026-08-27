@@ -7,12 +7,16 @@ def station_card_keyboard(
     total: int,
     lat: float,
     lng: float,
+    sort_by: str = "distance",
 ) -> list:
     waze_url = f"https://waze.com/ul?ll={lat},{lng}&navigate=yes"
     gmap_url = f"https://www.google.com/maps/dir/?api=1&destination={lat},{lng}"
 
     prev_disabled = idx == 0
     next_disabled = idx == total - 1
+
+    dist_btn_text = "📏 לפי מרחק ✅" if sort_by == "distance" else "📏 לפי מרחק"
+    speed_btn_text = "⚡ לפי מהירות ✅" if sort_by == "speed" else "⚡ לפי מהירות"
 
     rows = [
         [
@@ -28,6 +32,10 @@ def station_card_keyboard(
                 "הבאה ▶" if not next_disabled else "·",
                 data=b"nav:next" if not next_disabled else b"nav:noop",
             ),
+        ],
+        [
+            Button.inline(dist_btn_text, data=b"sort:distance"),
+            Button.inline(speed_btn_text, data=b"sort:speed"),
         ],
         [
             Button.url("🚗 ניווט ב-Waze", url=waze_url),

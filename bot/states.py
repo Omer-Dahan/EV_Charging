@@ -11,6 +11,7 @@ _SESSION_MAX = 2000
 @dataclass
 class UserSession:
     results: list = field(default_factory=list)
+    all_results: list = field(default_factory=list)
     current_idx: int = 0
     user_lat: Optional[float] = None
     user_lng: Optional[float] = None
@@ -18,6 +19,7 @@ class UserSession:
     result_msg_id: Optional[int] = None
     location_name: Optional[str] = None
     geocode_candidates: list = field(default_factory=list)
+    sort_by: str = "distance"
     _last_active: float = field(default_factory=time.monotonic)
 
     def touch(self) -> None:
