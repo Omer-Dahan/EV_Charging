@@ -15,7 +15,6 @@ Visual map rendering, smart plug/speed filters, real-time availability, and one-
 <a href="#-quick-start"><img src="https://img.shields.io/badge/🚀_Quick_Start-06B6D4?style=for-the-badge&logoColor=white" alt="Quick Start"></a>
 <a href="#-features"><img src="https://img.shields.io/badge/⚡_Features-D98324?style=for-the-badge&logoColor=white" alt="Features"></a>
 <a href="#-architecture"><img src="https://img.shields.io/badge/🧠_Architecture-0D1117?style=for-the-badge&logoColor=white" alt="Architecture"></a>
-<a href="#-search--filtering-flow"><img src="https://img.shields.io/badge/🔍_Search_Flow-3776AB?style=for-the-badge&logoColor=white" alt="Search Flow"></a>
 
 <br><br>
 
@@ -39,7 +38,6 @@ Visual map rendering, smart plug/speed filters, real-time availability, and one-
 **Getting Started**
 * [✨ Features](#-features)
 * [🧠 Architecture](#-architecture)
-* [🔍 Search & Filtering Flow](#-search--filtering-flow)
 * [🗄️ Data Sources](#️-data-sources)
 
 </td>
@@ -123,79 +121,32 @@ The system consists of a Telegram bot client, a station search & map rendering e
 | 🛠️ **Data Builder** | `Python` pipeline | Scrapes, merges, and cleans data from 5 sources (`ev_stations.db`) |
 
 ```mermaid
-graph TD
+flowchart TD
     subgraph USER["📱 Telegram User"]
-        GPS["📍 Live Location / Search Query"]
+        GPS["📍 Sends Location (GPS) & Radius"]
+        OUT["📱 Receives Station Card + Map + Waze/Google Links"]
     end
 
-    subgraph BOT["🤖 Bot Client (Telethon)"]
-        H["Handlers & Controllers"]
-        S["User Preferences (users.db)"]
+    subgraph BOT["🤖 Bot Client & Engine"]
+        H["⚙️ Handlers & User Preferences (users.db)"]
+        SRCH["🔍 Search Engine (Haversine & Plug/Price Filter)"]
+        MAP["🗺️ Map Renderer (Geoapify API / PIL)"]
     end
 
-    subgraph ENGINE["⚙️ Core Engine"]
-        SRCH["🔍 Search & Filter Engine"]
-        MAP["🗺️ Map Renderer (Geoapify / PIL)"]
-        DB[("🗄️ SQLite Database (ev_stations.db)")]
+    subgraph DATA["🗄️ Consolidated Database"]
+        DB[("⚡ ev_stations.db (~3,400 Sites)")]
     end
 
     GPS --> H
-    H <--> S
     H --> SRCH
     SRCH <--> DB
     SRCH --> MAP
     MAP --> H
-    H -->|"Card + Map + Waze/Google links"| USER
+    H --> OUT
 
     style DB fill:#0D1117,stroke:#06B6D4,color:#fff
     style MAP fill:#0088CC,stroke:#0088CC,color:#fff
     style SRCH fill:#3776AB,stroke:#3776AB,color:#fff
-```
-
----
-
-## 🔍 Search & Filtering Flow
-
-The sequence diagram below illustrates how user requests move through preference lookup, spatial indexing, distance ranking, map generation, and message delivery.
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User as 📱 User
-    participant Bot as 🤖 Bot Client
-    participant UserDB as 💾 User DB (users.db)
-    participant Engine as 🔍 Search Engine
-    participant StationDB as 🗄️ Station DB (ev_stations.db)
-    participant MapEngine as 🗺️ Map Renderer
-
-    User->>Bot: Send Live Location (GPS) & Radius
-    Bot->>UserDB: Load Saved Preferences (Plug, Speed, Max Price)
-    UserDB-->>Bot: Return Preference Filters
-    Bot->>Engine: Execute Search Query
-    Engine->>StationDB: Fetch Bounding Box Stations
-    StationDB-->>Engine: Return Raw Station Candidates
-    Engine->>Engine: 1. Calculate Exact Distance (Haversine)<br/>2. Apply Plug & Max Tariff Filters<br/>3. Sort Stations by Distance
-    Engine-->>Bot: Return Ranked & Filtered Results
-    Bot->>MapEngine: Request Static Map (User Pin + Station Pins)
-    MapEngine-->>Bot: Return Rendered Map Image
-    Bot->>User: Send Station Card + Map Image + Waze/Google Navigation Buttons
-```
-
-```mermaid
-flowchart TD
-    A["📍 User Sends GPS Location"] --> B["⚙️ Load User Preferences<br/>(Plug Type, Speed, Max Price, Radius)"]
-    B --> C["📐 Spatial Bounding Box Filter<br/>(Quick SQLite Index Search)"]
-    C --> D["🌐 Calculate Precise Distance<br/>(Haversine Formula)"]
-    D --> E{"🔌 Connector & Price Match?"}
-    E -- No --> F["❌ Exclude Station"]
-    E -- Yes --> G["✅ Include & Rank Station"]
-    G --> H["🗺️ Generate Static Map Image<br/>(Geoapify API / PIL Fallback)"]
-    H --> I["📱 Build Response Card & Navigation Links<br/>(Waze & Google Maps)"]
-    I --> J["📤 Deliver Result to Telegram User"]
-
-    style A fill:#0D1117,stroke:#06B6D4,color:#fff
-    style G fill:#003B57,stroke:#3776AB,color:#fff
-    style J fill:#0088CC,stroke:#0088CC,color:#fff
 ```
 
 ---

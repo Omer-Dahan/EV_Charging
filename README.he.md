@@ -15,7 +15,6 @@
 <a href="#-הרצה-מהירה"><img src="https://img.shields.io/badge/🚀_הרצה_מהירה-06B6D4?style=for-the-badge&logoColor=white" alt="הרצה מהירה"></a>
 <a href="#-תכונות-עיקריות"><img src="https://img.shields.io/badge/⚡_תכונות-D98324?style=for-the-badge&logoColor=white" alt="תכונות"></a>
 <a href="#-ארכיטקטורה"><img src="https://img.shields.io/badge/🧠_ארכיטקטורה-0D1117?style=for-the-badge&logoColor=white" alt="ארכיטקטורה"></a>
-<a href="#-תהליך-החיפוש-והסינון"><img src="https://img.shields.io/badge/🔍_תהליך_החיפוש-3776AB?style=for-the-badge&logoColor=white" alt="תהליך החיפוש"></a>
 
 <br><br>
 
@@ -39,7 +38,6 @@
 **צעדים ראשונים**
 * [✨ תכונות עיקריות](#-תכונות-עיקריות)
 * [🧠 ארכיטקטורה](#-ארכיטקטורה)
-* [🔍 תהליך החיפוש והסינון](#-תהליך-החיפוש-והסינון)
 * [🗄️ מקורות הנתונים](#️-מקורות-הנתונים)
 
 </td>
@@ -123,79 +121,32 @@
 | 🛠️ **בניית מאגר** | סקריפט `Python` | סריקה, איחוד וניקוי 5 מקורות נתונים (`ev_stations.db`) |
 
 ```mermaid
-graph TD
+flowchart TD
     subgraph USER["📱 משתמש טלגרם"]
-        GPS["📍 מיקום לייב / שאילתת חיפוש"]
+        GPS["📍 שליחת מיקום (GPS) וטווח"]
+        OUT["📱 קבלת כרטיסייה + מפה + קישורי ניווט"]
     end
 
-    subgraph BOT["🤖 בוט (Telethon)"]
-        H["Handlers & Controllers"]
-        S["הגדרות משתמש (users.db)"]
+    subgraph BOT["🤖 בוט ומנוע חיפוש"]
+        H["⚙️ Handlers והגדרות (users.db)"]
+        SRCH["🔍 מנוע חיפוש (Haversine וסינון שקע/מחיר)"]
+        MAP["🗺️ רינדור מפה (Geoapify API / PIL)"]
     end
 
-    subgraph ENGINE["⚙️ מנוע ליבה"]
-        SRCH["🔍 מנוע חיפוש וסינון"]
-        MAP["🗺️ רינדור מפה (Geoapify / PIL)"]
-        DB[("🗄️ בסיס נתונים SQLite (ev_stations.db)")]
+    subgraph DATA["🗄️ מאגר נתונים מאוחד"]
+        DB[("⚡ ev_stations.db (~3,400 אתרים)")]
     end
 
     GPS --> H
-    H <--> S
     H --> SRCH
     SRCH <--> DB
     SRCH --> MAP
     MAP --> H
-    H -->|"כרטיסיה + מפה + קישורי ניווט"| USER
+    H --> OUT
 
     style DB fill:#0D1117,stroke:#06B6D4,color:#fff
     style MAP fill:#0088CC,stroke:#0088CC,color:#fff
     style SRCH fill:#3776AB,stroke:#3776AB,color:#fff
-```
-
----
-
-## 🔍 תהליך החיפוש והסינון
-
-תרשים הרצף ותרשים הזרם להלן מציגים כיצד פניית המשתמש מעובדת החל משליפת העדפות השתמש, חישוב מרחקים, סינון עמדות, רינדור מפה ועד לשליחת הכרטיסיה בטלגרם.
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User as 📱 משתמש
-    participant Bot as 🤖 בוט טלגרם
-    participant UserDB as 💾 בסיס משתמשים (users.db)
-    participant Engine as 🔍 מנוע חיפוש
-    participant StationDB as 🗄️ מאגר עמדות (ev_stations.db)
-    participant MapEngine as 🗺️ רינדור מפה
-
-    User->>Bot: שליחת מיקום GPS וטווח חיפוש
-    Bot->>UserDB: שליפת העדפות שמורות (שקע, מהירות, מחיר מקסימלי)
-    UserDB-->>Bot: החזרת פילטרים פעילים
-    Bot->>Engine: הרצת שאילתת חיפוש
-    Engine->>StationDB: שליפת עמדות בטווח המרחבי
-    StationDB-->>Engine: החזרת עמדות רלוונטיות
-    Engine->>Engine: 1. חישוב מרחק מדויק (Haversine)<br/>2. סינון לפי שקע ומחיר מקסימלי<br/>3. מיון עמדות לפי מרחק (מהקרוב לרחוק)
-    Engine-->>Bot: החזרת תוצאות ממויינות ומסוננות
-    Bot->>MapEngine: בקשת מפה סטטית (סיכת משתמש + סיכות עמדות)
-    MapEngine-->>Bot: החזרת תמונת מפה מרונדרת
-    Bot->>User: שליחת כרטיסיית עמדות + תמונת מפה + כפתורי ניווט (Waze/Google Maps)
-```
-
-```mermaid
-flowchart TD
-    A["📍 משתמש שולח מיקום GPS"] --> B["⚙️ טעינת העדפות משתמש<br/>(סוג שקע, מהירות, מחיר, טווח)"]
-    B --> C["📐 סינון מרחבי ראשוני<br/>(חיפוש אינדקס מהיר ב-SQLite)"]
-    C --> D["🌐 חישוב מרחק מדויק<br/>(נוסחת Haversine)"]
-    D --> E{"🔌 מתאים לסוג שקע ומחיר?"}
-    E -- לא --> F["❌ סינון והחרגת העמדה"]
-    E -- כן --> G["✅ הכללת העמדה ודירוגה"]
-    G --> H["🗺️ יצירת תמונת מפה סטטית<br/>(Geoapify API / PIL Fallback)"]
-    H --> I["📱 בניית כרטיסייה וקישורי ניווט<br/>(Waze & Google Maps)"]
-    I --> J["📤 שליחת התוצאות למשתמש בטלגרם"]
-
-    style A fill:#0D1117,stroke:#06B6D4,color:#fff
-    style G fill:#003B57,stroke:#3776AB,color:#fff
-    style J fill:#0088CC,stroke:#0088CC,color:#fff
 ```
 
 ---
