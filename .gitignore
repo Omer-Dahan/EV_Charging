@@ -1,0 +1,50 @@
+# Environment & Secret Files
+.env
+.env.local
+*.env
+
+# SQLite Databases & Cache
+*.db
+*.db-journal
+*.db-wal
+*.sqlite
+*.sqlite3
+data/*.db
+data/*_cache.json
+users.db
+
+# Telegram Sessions
+*.session
+*.session-journal
+
+# Python Bytecode & Cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual Environments
+.venv/
+venv/
+ENV/
+env/
+
+# IDE & Editor Settings
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Project Documentation (Excluded from Git tracking per project rules)
+SOFTWARE_OVERVIEW.md
+
+# Operating System Files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs & Temp Files
+*.log
+logs/
+tmp/
+temp/

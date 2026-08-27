@@ -1,0 +1,17 @@
+[Unit]
+Description=EV Charging Telegram Bot
+After=network.target
+
+[Service]
+Type=simple
+User=vm
+WorkingDirectory=/home/vm/projects/ev-charging-bot
+ExecStart=/home/vm/venvs/ev-bot/bin/python -m bot.main
+Restart=always
+RestartSec=10
+EnvironmentFile=/home/vm/projects/ev-charging-bot/.env
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
