@@ -21,9 +21,10 @@ NOMINATIM_TIMEOUT_SEC = 6
 _nominatim_lock = asyncio.Lock()
 _nominatim_last_call = 0.0
 
-# מטמון בזיכרון לתוצאות גיאוקודינג (שאילתה -> תוצאות) למניעת קריאות חוזרות
+# In-memory geocode cache: query -> (results, timestamp).  Entries expire after 1 hour.
 _GEOCODE_CACHE_MAX = 256
-_geocode_cache: dict[str, list[dict]] = {}
+_GEOCODE_CACHE_TTL = 3600.0  # seconds
+_geocode_cache: dict[str, tuple[list[dict], float]] = {}
 
 COORD_REGEX = re.compile(
     r"^(?:geo:)?\s*([+-]?\d{1,2}(?:\.\d+)?)\s*[°NnSs]?\s*[,;\s/]\s*([+-]?\d{1,3}(?:\.\d+)?)\s*[°EeWw]?\s*$"
@@ -130,7 +131,7 @@ def _deduplicate_results(results: list[dict]) -> list[dict]:
 
 
 def _geocode_geoapify_sync(text: str, api_key: str) -> list[dict]:
-    """גיאוקודינג באמצעות Geoapify Geocoding API."""
+    """Geocoding via Geoapify API, using a shared Session for connection reuse."""
     params = {
         "text": text,
         "apiKey": api_key,
@@ -139,7 +140,8 @@ def _geocode_geoapify_sync(text: str, api_key: str) -> list[dict]:
         "limit": 5,
     }
     try:
-        resp = requests.get(GEOAPIFY_GEOCODE_URL, params=params, timeout=GEOAPIFY_TIMEOUT_SEC)
+        with requests.Session() as session:
+            resp = session.get(GEOAPIFY_GEOCODE_URL, params=params, timeout=GEOAPIFY_TIMEOUT_SEC)
         resp.raise_for_status()
         data = resp.json()
         features = data.get("features", [])
@@ -222,12 +224,16 @@ async def geocode(text: str) -> list[dict]:
     if not cleaned_query:
         return []
 
-    # בדיקת מטמון (מנורמל לאותיות קטנות) - חוסך קריאות רשת חוזרות
+    # Check cache (normalised key). Entries expire after _GEOCODE_CACHE_TTL seconds.
     cache_key = cleaned_query.lower()
-    cached = _geocode_cache.get(cache_key)
-    if cached is not None:
-        logger.info("geocode cache hit query=%r results=%d", cleaned_query, len(cached))
-        return cached
+    cached_entry = _geocode_cache.get(cache_key)
+    if cached_entry is not None:
+        cached_results, cached_at = cached_entry
+        if time.monotonic() - cached_at < _GEOCODE_CACHE_TTL:
+            logger.info("geocode cache hit query=%r results=%d", cleaned_query, len(cached_results))
+            return cached_results
+        # Entry expired — remove it so a fresh request is made.
+        del _geocode_cache[cache_key]
 
     # 1. ניסיון ב-Geoapify כספק ראשי
     api_key = settings.map_provider_key.strip()
@@ -248,7 +254,16 @@ async def geocode(text: str) -> list[dict]:
 
 
 def _store_in_cache(cache_key: str, results: list[dict]) -> None:
-    """שמירת תוצאות במטמון הזיכרון עם הגבלת גודל (FIFO)."""
+    """Store results in the in-memory cache with a size cap (FIFO eviction).
+
+    Also evicts any stale (TTL-expired) entries before inserting to keep the dict small.
+    """
+    now = time.monotonic()
+    # Remove expired entries first to free space before hitting the FIFO cap.
+    stale_keys = [k for k, (_, ts) in _geocode_cache.items() if now - ts >= _GEOCODE_CACHE_TTL]
+    for k in stale_keys:
+        del _geocode_cache[k]
+    # Enforce size cap via FIFO.
     if len(_geocode_cache) >= _GEOCODE_CACHE_MAX:
         _geocode_cache.pop(next(iter(_geocode_cache)))
-    _geocode_cache[cache_key] = results
+    _geocode_cache[cache_key] = (results, now)

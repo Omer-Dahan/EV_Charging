@@ -22,7 +22,7 @@ def _connectors_block(connectors_json: str) -> str:
         display = CONNECTOR_DISPLAY.get(standard, CONNECTOR_DISPLAY["OTHER"])
         power = c.get("maxPower")
         if power is not None:
-            parts.append(f"{display} {int(power)}kW")
+            parts.append(f"{display} {float(power):.1f}kW")
         else:
             parts.append(display)
     return " | ".join(parts)

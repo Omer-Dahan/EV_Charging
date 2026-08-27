@@ -295,9 +295,18 @@ def register_handlers(client: TelegramClient) -> None:
         data = event.data.decode("utf-8")
         parts = data.split(":")
         try:
+            if len(parts) < 4:
+                raise ValueError(f"malformed geo callback data: {data!r}")
             idx = int(parts[1])
             lat = float(parts[2])
             lng = float(parts[3])
+
+            # Validate that the coordinates are within a reasonable world range.
+            # execute_search also checks is_in_israel, but this guards against
+            # obviously bad/tampered callback data before we touch the session.
+            if not (-90.0 <= lat <= 90.0 and -180.0 <= lng <= 180.0):
+                await event.answer(ERROR_GENERIC, alert=True)
+                return
 
             session = get_session(chat_id)
             location_name = None
@@ -308,7 +317,11 @@ def register_handlers(client: TelegramClient) -> None:
             try:
                 await event.delete()
             except Exception:
-                pass
+                # If delete fails (e.g. message too old), at least clear the keyboard.
+                try:
+                    await event.edit(buttons=None)
+                except Exception:
+                    pass
 
             await execute_search(event, chat_id, lat, lng, location_name=location_name)
         except Exception:

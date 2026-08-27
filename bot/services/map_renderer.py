@@ -1,4 +1,5 @@
 import asyncio
+import functools
 import logging
 import math
 import os
@@ -34,11 +35,12 @@ PIN_RED = (220, 40, 40)
 PIN_RED_DARK = (170, 20, 20)
 BOLT_YELLOW = (255, 214, 51)
 
-# ===== Geoapify Static Maps (ספק איכותי יותר, אופציונלי) =====
-# כשיש מפתח חינמי (MAP_PROVIDER_KEY ב-.env), משתמשים ב-Geoapify: אריחי osm-carto
-# עם תמיכה מלאה בעברית (RTL תקין ושמות עבריים), רזולוציה גבוהה וסמנים מותאמים.
-# בלי מפתח - נופלים אוטומטית חזרה לרינדור OSM+PIL המקומי (_render_map_sync).
-GEOAPIFY_API_KEY = settings.map_provider_key.strip()
+# ===== Geoapify Static Maps (optional premium provider) =====
+# When MAP_PROVIDER_KEY is set in .env, Geoapify is used for higher-quality tiles
+# with full Hebrew RTL support.  Without a key the bot falls back automatically
+# to the local OSM+PIL renderer (_render_map_sync).
+# NOTE: The key is read dynamically (settings.map_provider_key) at render time,
+# not at module import, so .env reloads and test patching work correctly.
 GEOAPIFY_STATIC_URL = "https://maps.geoapify.com/v1/staticmap"
 GEOAPIFY_STYLE = "osm-carto"
 GEOAPIFY_LANG = "he"
@@ -166,10 +168,21 @@ def _draw_charger_icon(draw: ImageDraw.ImageDraw, px: float, py: float, radius: 
     draw.polygon(bolt, fill=BOLT_YELLOW)
 
 
+@functools.lru_cache(maxsize=8)
 def _load_font(size: int) -> ImageFont.FreeTypeFont:
-    # DejaVu Sans Bold כולל גליפים עבריים (בניגוד לפונט ברירת המחדל של PIL),
-    # דרוש כדי שהתוויות א/ב על הסמנים לא יוצגו כריבועי "תו חסר".
-    return ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", size)
+    """Load a font with Hebrew glyph support."""
+    candidates = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/dejavu-sans-fonts/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
+    ]
+    for path in candidates:
+        if os.path.isfile(path):
+            try:
+                return ImageFont.truetype(path, size)
+            except (OSError, IOError):
+                continue
+    return ImageFont.load_default()
 
 
 def _render_map_sync(user_lat: float, user_lng: float, radius_km: float, stations: list[dict]) -> Optional[str]:
@@ -256,10 +269,10 @@ def _geoapify_marker_param(lat: float, lng: float, *, icon: str, color: str, siz
 
 
 def _render_map_geoapify_sync(user_lat: float, user_lng: float, radius_km: float, stations: list[dict]) -> Optional[str]:
-    """מרנדר מפה דרך Geoapify Static Maps (אריחי וקטור איכותיים + סמנים מצד השרת).
+    api_key = settings.map_provider_key.strip()
+    if not api_key:
+        return None
 
-    מחזיר None בכל כשלון (מפתח לא תקף, בעיית רשת, תגובה לא תקינה) כדי ש-render_map
-    יפול חזרה אוטומטית לרינדור ה-OSM/PIL המקומי."""
     lat_min, lon_min, lat_max, lon_max = _bbox(user_lat, user_lng, radius_km, stations)
 
     markers = [_geoapify_marker_param(user_lat, user_lng, icon="map-marker-alt", color=GEOAPIFY_USER_COLOR, size=46)]
@@ -267,7 +280,7 @@ def _render_map_geoapify_sync(user_lat: float, user_lng: float, radius_km: float
         markers.append(_geoapify_marker_param(s["lat"], s["lng"], icon="bolt", color=GEOAPIFY_STATION_COLOR, size=34))
 
     params = {
-        "apiKey": GEOAPIFY_API_KEY,
+        "apiKey": api_key,
         "style": GEOAPIFY_STYLE,
         "lang": GEOAPIFY_LANG,
         "width": OUTPUT_WIDTH,
@@ -284,7 +297,7 @@ def _render_map_geoapify_sync(user_lat: float, user_lng: float, radius_km: float
         if not content_type.startswith("image/"):
             raise ValueError(f"unexpected content-type from Geoapify: {content_type!r}")
         img = Image.open(BytesIO(resp.content))
-        img.load()  # מכריח דקודינג מיידי כדי לתפוס תוכן פגום/חלקי כאן ולא בהמשך
+        img.load()
         fd, path = tempfile.mkstemp(prefix="ev_map_", suffix=".png")
         os.close(fd)
         img.convert("RGB").save(path, "PNG")
@@ -295,16 +308,17 @@ def _render_map_geoapify_sync(user_lat: float, user_lng: float, radius_km: float
 
 
 async def render_map(user_lat: float, user_lng: float, radius_km: float, stations: list[dict]) -> Optional[str]:
-    """מרנדר מפה עם מיקום הנהג (סיכה אדומה) ועמדות הטעינה (סמל ברק).
+    """Render a map showing the user location (red pin) and nearby charging stations (bolt icon).
 
-    אם הוגדר MAP_PROVIDER_KEY (מפתח חינמי ל-Geoapify) - משתמשים בו לאיכות ומיקוד גבוהים
-    יותר. אחרת, או אם הבקשה ל-Geoapify נכשלה, נופלים חזרה לרינדור אריחי OSM+PIL המקומי.
-
-    מחזיר נתיב לקובץ PNG זמני, או None אם שתי הדרכים נכשלו (למשל אין רשת) - במקרה כזה
-    הבוט צריך להמשיך ולשלוח את כרטיסיית העמדה גם בלי תמונה.
+    Uses Geoapify Static Maps when MAP_PROVIDER_KEY is configured, falling back
+    automatically to the local OSM+PIL renderer on any failure or when no key is set.
+    Returns a path to a temporary PNG file, or None if both renderers fail.
     """
     try:
-        if GEOAPIFY_API_KEY:
+        # Read the API key at call time (not at import time) so that env changes
+        # and test patches are always respected.
+        api_key = settings.map_provider_key.strip()
+        if api_key:
             path = await asyncio.to_thread(_render_map_geoapify_sync, user_lat, user_lng, radius_km, stations)
             if path is not None:
                 return path

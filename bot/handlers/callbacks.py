@@ -47,12 +47,18 @@ def register_handlers(client: TelegramClient) -> None:
             session = get_session(chat_id)
 
             if action == "next":
+                if not session.results:
+                    await event.answer(ERROR_GENERIC, alert=True)
+                    return
                 if session.current_idx < len(session.results) - 1:
                     session.current_idx += 1
                 text, buttons = render_station_card(session)
                 await event.edit(text, buttons=buttons, parse_mode="html")
 
             elif action == "prev":
+                if not session.results:
+                    await event.answer(ERROR_GENERIC, alert=True)
+                    return
                 if session.current_idx > 0:
                     session.current_idx -= 1
                 text, buttons = render_station_card(session)
@@ -91,7 +97,16 @@ def register_handlers(client: TelegramClient) -> None:
     async def handle_range(event: events.CallbackQuery.Event) -> None:
         chat_id = event.chat_id
         data = event.data.decode("utf-8")
-        radius_km = int(data.split(":", 1)[1])
+
+        try:
+            radius_km = int(data.split(":", 1)[1])
+        except (ValueError, IndexError):
+            await event.answer(ERROR_GENERIC, alert=True)
+            return
+        # Reject unreasonable radius values to prevent DB/map abuse.
+        if not (1 <= radius_km <= 200):
+            await event.answer(ERROR_GENERIC, alert=True)
+            return
 
         try:
             session = get_session(chat_id)
@@ -116,3 +131,4 @@ def register_handlers(client: TelegramClient) -> None:
         except Exception:
             logger.exception("error handling range callback for chat_id=%s", chat_id)
             await event.answer(ERROR_GENERIC, alert=True)
+

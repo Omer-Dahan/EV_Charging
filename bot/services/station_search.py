@@ -73,9 +73,6 @@ def _find_nearby_sync(
     lon_min = user_lng - lon_delta
     lon_max = user_lng + lon_delta
 
-    conn = sqlite3.connect(db_path, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-
     query = """
         SELECT
             id, cello_id, name, address, city,
@@ -95,8 +92,12 @@ def _find_nearby_sync(
         "lon_min": lon_min, "lon_max": lon_max,
         "max_price": max_price,
     }
-    rows = conn.execute(query, params).fetchall()
-    conn.close()
+    # Use context manager to guarantee connection is closed even on exception.
+    # Enable WAL mode once per connection for safe concurrent reads from multiple threads.
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(query, params).fetchall()
 
     results = []
     for row in rows:

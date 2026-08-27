@@ -138,18 +138,50 @@ def register_handlers(client: TelegramClient) -> None:
     async def handle_filter(event: events.CallbackQuery.Event) -> None:
         data = event.data.decode("utf-8")
         parts = data.split(":")
+        # Expect exactly "filter:<type>:<value>" — 3 parts minimum.
+        if len(parts) < 3:
+            await event.answer(ERROR_GENERIC, alert=True)
+            return
         filter_type = parts[1]
         value = parts[2]
         try:
             if filter_type == "connector":
+                if value not in ("ALL", "CCS2_COMBO", "TYPE2", "CHADEMO"):
+                    await event.answer(ERROR_GENERIC, alert=True)
+                    return
                 await _save_and_return(event, connector_filter=value)
             elif filter_type == "speed":
+                if value not in ("ALL", "SLOW", "FAST", "ULTRA"):
+                    await event.answer(ERROR_GENERIC, alert=True)
+                    return
                 await _save_and_return(event, speed_filter=value)
             elif filter_type == "range":
-                await _save_and_return(event, default_radius=int(value))
+                try:
+                    radius = int(value)
+                except ValueError:
+                    await event.answer(ERROR_GENERIC, alert=True)
+                    return
+                if not (1 <= radius <= 200):
+                    await event.answer(ERROR_GENERIC, alert=True)
+                    return
+                await _save_and_return(event, default_radius=radius)
             elif filter_type == "price":
-                max_price = None if value == "NONE" else float(value)
+                if value == "NONE":
+                    max_price = None
+                else:
+                    try:
+                        max_price = float(value)
+                    except ValueError:
+                        await event.answer(ERROR_GENERIC, alert=True)
+                        return
+                    if max_price < 0:
+                        await event.answer(ERROR_GENERIC, alert=True)
+                        return
                 await _save_and_return(event, max_price=max_price)
+            else:
+                # Unknown filter type — ignore silently (defensive).
+                await event.answer(ERROR_GENERIC, alert=True)
         except Exception:
             logger.exception("error handling filter callback for chat_id=%s", event.chat_id)
             await event.answer(ERROR_GENERIC, alert=True)
+
