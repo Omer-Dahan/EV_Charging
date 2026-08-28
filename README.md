@@ -3,7 +3,7 @@
 # ⚡ EV Charging IL Bot
 ### Smart EV Station Search & Interactive Navigation in Israel
 
-**Consolidated database of ~3,400 EV charging sites across all major operators in Israel.**<br>
+**Consolidated database of ~3,500 EV charging sites across all major operators in Israel.**<br>
 Visual map rendering, smart plug/speed filters, real-time availability, and one-click Waze/Google Maps navigation.
 
 <br>
@@ -134,7 +134,7 @@ flowchart TD
     end
 
     subgraph DATA["🗄️ Consolidated Database"]
-        DB[("⚡ ev_stations.db (~3,400 Sites)")]
+        DB[("⚡ ev_stations.db (~3,500 Sites)")]
     end
 
     GPS --> H

@@ -24,6 +24,7 @@
     "shield-check": '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/>',
     car: '<path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/>',
     map: '<path d="M14.106 5.553a2 2 0 0 0 1.788 0l3.659-1.83A1 1 0 0 1 21 4.619v12.764a1 1 0 0 1-.553.894l-4.553 2.277a2 2 0 0 1-1.788 0l-4.212-2.106a2 2 0 0 0-1.788 0l-3.659 1.83A1 1 0 0 1 3 19.381V6.618a1 1 0 0 1 .553-.894l4.553-2.277a2 2 0 0 1 1.788 0z"/><path d="M15 5.764v15"/><path d="M9 3.236v15"/>',
+    check: '<path d="M20 6 9 17l-5-5"/>',
   };
 
   function icon(name, cls) {
@@ -85,6 +86,7 @@
   var allStations = [];
   var markerById = {};
   var activeSpeed = "ALL";
+  var activeProvider = "ALL";
 
   function haversineKm(lat1, lon1, lat2, lon2) {
     var R = 6371;
@@ -160,14 +162,13 @@
 
   function refreshMarkers() {
     var query = document.getElementById("search").value.trim().toLowerCase();
-    var provider = document.getElementById("provider-filter").value;
 
     clusterGroup.clearLayers();
     var matched = [];
     var layers = [];
     for (var i = 0; i < allStations.length; i++) {
       var s = allStations[i];
-      if (!passesFilters(s, query, activeSpeed, provider)) continue;
+      if (!passesFilters(s, query, activeSpeed, activeProvider)) continue;
       matched.push(s);
       layers.push(markerById[s.id]);
     }
@@ -214,17 +215,78 @@
     });
   }
 
+  var ALL_PROVIDERS_LABEL = "כל המפעילים";
+
+  function buildProviderOption(value, label) {
+    var div = document.createElement("div");
+    div.className = "provider-option";
+    if (value === activeProvider) div.classList.add("is-selected");
+    div.setAttribute("role", "option");
+    div.setAttribute("aria-selected", value === activeProvider ? "true" : "false");
+    div.setAttribute("data-value", value);
+    div.innerHTML =
+      '<span class="provider-option-check">' + icon("check") + "</span>" +
+      '<span class="provider-option-label">' + escapeHtml(label) + "</span>";
+    div.addEventListener("click", function () {
+      selectProvider(value, label);
+    });
+    return div;
+  }
+
   function populateProviders(stations) {
     var providers = Array.from(new Set(stations.map(function (s) { return s.p; }).filter(Boolean))).sort(function (a, b) {
       return a.localeCompare(b, "he");
     });
-    var sel = document.getElementById("provider-filter");
+    var optionsEl = document.getElementById("provider-options");
+    optionsEl.innerHTML = "";
+    optionsEl.appendChild(buildProviderOption("ALL", ALL_PROVIDERS_LABEL));
     providers.forEach(function (p) {
-      var opt = document.createElement("option");
-      opt.value = p;
-      opt.textContent = p;
-      sel.appendChild(opt);
+      optionsEl.appendChild(buildProviderOption(p, p));
     });
+  }
+
+  function selectProvider(value, label) {
+    activeProvider = value;
+    document.getElementById("provider-btn-label").textContent = label;
+    document.querySelectorAll(".provider-option").forEach(function (opt) {
+      var isSelected = opt.getAttribute("data-value") === value;
+      opt.classList.toggle("is-selected", isSelected);
+      opt.setAttribute("aria-selected", isSelected ? "true" : "false");
+    });
+    closeProviderDropdown();
+    refreshMarkers();
+  }
+
+  function filterProviderOptions(query) {
+    query = query.trim().toLowerCase();
+    var options = document.querySelectorAll(".provider-option");
+    var visibleCount = 0;
+    options.forEach(function (opt) {
+      var label = opt.querySelector(".provider-option-label").textContent.toLowerCase();
+      var visible = !query || label.indexOf(query) !== -1;
+      opt.classList.toggle("hidden", !visible);
+      if (visible) visibleCount++;
+    });
+    document.getElementById("provider-no-results").classList.toggle("hidden", visibleCount > 0);
+  }
+
+  function openProviderDropdown() {
+    var dropdown = document.getElementById("provider-dropdown");
+    var search = document.getElementById("provider-search");
+    dropdown.classList.remove("hidden");
+    document.getElementById("provider-btn").setAttribute("aria-expanded", "true");
+    search.value = "";
+    filterProviderOptions("");
+    search.focus();
+  }
+
+  function closeProviderDropdown() {
+    document.getElementById("provider-dropdown").classList.add("hidden");
+    document.getElementById("provider-btn").setAttribute("aria-expanded", "false");
+  }
+
+  function isProviderDropdownOpen() {
+    return !document.getElementById("provider-dropdown").classList.contains("hidden");
   }
 
   fetch("stations.json")
@@ -243,7 +305,32 @@
     });
 
   document.getElementById("search").addEventListener("input", refreshMarkers);
-  document.getElementById("provider-filter").addEventListener("change", refreshMarkers);
+
+  document.getElementById("provider-btn").addEventListener("click", function () {
+    if (isProviderDropdownOpen()) {
+      closeProviderDropdown();
+    } else {
+      openProviderDropdown();
+    }
+  });
+
+  document.getElementById("provider-search").addEventListener("input", function (e) {
+    filterProviderOptions(e.target.value);
+  });
+
+  document.addEventListener("click", function (e) {
+    if (!isProviderDropdownOpen()) return;
+    if (!document.getElementById("provider-wrap").contains(e.target)) {
+      closeProviderDropdown();
+    }
+  });
+
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && isProviderDropdownOpen()) {
+      closeProviderDropdown();
+      document.getElementById("provider-btn").focus();
+    }
+  });
 
   var speedButtons = document.querySelectorAll(".speed-btn");
   speedButtons.forEach(function (btn) {

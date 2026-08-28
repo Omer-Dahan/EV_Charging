@@ -43,10 +43,20 @@
 
     <div id="select-row">
       <div id="provider-wrap">
-        <select id="provider-filter">
-          <option value="ALL">כל המפעילים</option>
-        </select>
-        <svg class="icon" id="provider-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+        <button type="button" id="provider-btn" aria-haspopup="listbox" aria-expanded="false">
+          <span id="provider-btn-label">כל המפעילים</span>
+          <svg class="icon" id="provider-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+        </button>
+        <div id="provider-dropdown" class="hidden" role="listbox" aria-label="בחר מפעיל" tabindex="-1">
+          <div id="provider-search-row">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/>
+            </svg>
+            <input id="provider-search" type="text" placeholder="חיפוש מפעיל&hellip;" autocomplete="off" />
+          </div>
+          <div id="provider-options"></div>
+          <div id="provider-no-results" class="hidden">לא נמצאו מפעילים</div>
+        </div>
       </div>
       <button id="list-toggle" type="button" aria-label="הצג רשימת עמדות">
         <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h.01"/><path d="M3 12h.01"/><path d="M3 19h.01"/><path d="M8 5h13"/><path d="M8 12h13"/><path d="M8 19h13"/></svg>
