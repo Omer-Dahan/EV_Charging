@@ -81,6 +81,8 @@ def render_station_card(session) -> tuple[str, list]:
         station["lat"],
         station["lng"],
         sort_by=getattr(session, "sort_by", "distance"),
+        user_lat=getattr(session, "user_lat", None),
+        user_lng=getattr(session, "user_lng", None),
     )
     return text, buttons
 

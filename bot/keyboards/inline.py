@@ -1,4 +1,17 @@
+from urllib.parse import urlencode
+
 from telethon.tl.custom import Button
+from telethon.tl.types import KeyboardButtonWebView
+
+from bot.config import WEBAPP_URL
+
+
+def _webapp_button(text: str, lat: float = None, lng: float = None) -> KeyboardButtonWebView:
+    """כפתור אינליין שפותח את ה-WebApp (מפת העמדות) בתוך טלגרם."""
+    url = WEBAPP_URL
+    if lat is not None and lng is not None:
+        url = f"{WEBAPP_URL}?{urlencode({'lat': lat, 'lng': lng})}"
+    return KeyboardButtonWebView(text, url)
 
 
 def station_card_keyboard(
@@ -8,6 +21,8 @@ def station_card_keyboard(
     lat: float,
     lng: float,
     sort_by: str = "distance",
+    user_lat: float = None,
+    user_lng: float = None,
 ) -> list:
     waze_url = f"https://waze.com/ul?ll={lat},{lng}&navigate=yes"
     gmap_url = f"https://www.google.com/maps/dir/?api=1&destination={lat},{lng}"
@@ -41,6 +56,7 @@ def station_card_keyboard(
             Button.url("🚗 ניווט ב-Waze", url=waze_url),
             Button.url("🗺️ Google Maps", url=gmap_url),
         ],
+        [_webapp_button("🗺️ מפת עמדות", lat=user_lat, lng=user_lng)],
         [
             Button.inline("🔄 חיפוש חדש", data=b"nav:new_search"),
             Button.inline("⚙️ הגדרות", data=b"settings:main"),
@@ -52,6 +68,7 @@ def station_card_keyboard(
 def welcome_keyboard() -> list:
     return [
         [Button.inline("📍 שיתוף מיקום GPS", data=b"loc:request")],
+        [_webapp_button("🗺️ מפת עמדות")],
         [Button.inline("⚙️ הגדרות", data=b"settings:main")],
         [
             Button.url("📢 ערוץ עדכונים", "https://t.me/YD_IL_BOTS"),

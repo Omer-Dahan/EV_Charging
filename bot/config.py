@@ -19,3 +19,7 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+# TODO: להחליף בכתובת ה-GitHub Pages הסופית לאחר פרסום הריפו (Settings > Pages > main /webapp).
+# עד אז זהו placeholder בלבד וכפתור המפה לא יעבוד בפועל.
+WEBAPP_URL = "https://<GITHUB_USERNAME>.github.io/ev-charging-bot/webapp/index.html"
