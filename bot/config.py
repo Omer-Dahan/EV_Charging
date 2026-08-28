@@ -22,4 +22,4 @@ settings = Settings()
 
 # TODO: להחליף בכתובת ה-GitHub Pages הסופית לאחר פרסום הריפו (Settings > Pages > main /webapp).
 # עד אז זהו placeholder בלבד וכפתור המפה לא יעבוד בפועל.
-WEBAPP_URL = "https://omer-dahan.github.io/EV_Charging/docs/index.html"
+WEBAPP_URL = "https://omer-dahan.github.io/EV_Charging/webapp/index.html"

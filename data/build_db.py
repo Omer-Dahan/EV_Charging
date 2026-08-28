@@ -75,6 +75,118 @@ def normalize_text(s: Optional[str]) -> str:
     return s
 
 
+# ==============================================================================
+# Normalization Module: City Names & Provider Names
+# ==============================================================================
+
+def _dedup_key(s: Optional[str]) -> str:
+    """Loose key for city/provider dedup: lowercase, strip spaces/punctuation."""
+    if not s:
+        return ""
+    s = s.strip().lower()
+    s = re.sub(r"[^a-z0-9\u0590-\u05fe]", "", s)
+    return s
+
+
+# English/Hebrew/truncated variants -> canonical Hebrew city name.
+# Includes fixes for real truncation artifacts observed in source feeds
+# (e.g. InterEV's "Beit El" sites sometimes report city as just "\u05d1\u05d9\u05ea").
+CITY_NAME_MAP: Dict[str, str] = {
+    "beitel": "\u05d1\u05d9\u05ea \u05d0\u05dc",
+    # Note: truncated "בית" (without the second word) is NOT mapped globally here
+    # because it would falsely remap many other cities. InterEV siteaddress parsing
+    # of the city part uses parts[1] which may yield "בית" only in genuinely truncated
+    # records — those remain as-is rather than being misidentified as "בית אל".
+    "telaviv": "\u05ea\u05dc \u05d0\u05d1\u05d9\u05d1",
+    "telavivyafo": "\u05ea\u05dc \u05d0\u05d1\u05d9\u05d1 \u05d9\u05e4\u05d5",
+    "jerusalem": "\u05d9\u05e8\u05d5\u05e9\u05dc\u05d9\u05dd",
+    "haifa": "\u05d7\u05d9\u05e4\u05d4",
+    "beitshemesh": "\u05d1\u05d9\u05ea \u05e9\u05de\u05e9",
+    "netanya": "\u05e0\u05ea\u05e0\u05d9\u05d4",
+    "rishonlezion": "\u05e8\u05d0\u05e9\u05d5\u05df \u05dc\u05e6\u05d9\u05d5\u05df",
+    "rishonlezziyon": "\u05e8\u05d0\u05e9\u05d5\u05df \u05dc\u05e6\u05d9\u05d5\u05df",
+    "petahtikva": "\u05e4\u05ea\u05d7 \u05ea\u05e7\u05d5\u05d5\u05d4",
+    "petachtikva": "\u05e4\u05ea\u05d7 \u05ea\u05e7\u05d5\u05d5\u05d4",
+    "beersheva": "\u05d1\u05d0\u05e8 \u05e9\u05d1\u05e2",
+    "beersheba": "\u05d1\u05d0\u05e8 \u05e9\u05d1\u05e2",
+    "beersheeva": "\u05d1\u05d0\u05e8 \u05e9\u05d1\u05e2",
+    "holon": "\u05d7\u05d5\u05dc\u05d5\u05df",
+    "ashdod": "\u05d0\u05e9\u05d3\u05d5\u05d3",
+    "ashkelon": "\u05d0\u05e9\u05e7\u05dc\u05d5\u05df",
+    "herzliya": "\u05d4\u05e8\u05e6\u05dc\u05d9\u05d4",
+    "herzelia": "\u05d4\u05e8\u05e6\u05dc\u05d9\u05d4",
+    "kfarsava": "\u05db\u05e4\u05e8 \u05e1\u05d1\u05d0",
+    "kefarsava": "\u05db\u05e4\u05e8 \u05e1\u05d1\u05d0",
+    "raanana": "\u05e8\u05e2\u05e0\u05e0\u05d4",
+    "ranana": "\u05e8\u05e2\u05e0\u05e0\u05d4",
+    "modiin": "\u05de\u05d5\u05d3\u05d9\u05e2\u05d9\u05df",
+    "rehovot": "\u05e8\u05d7\u05d5\u05d1\u05d5\u05ea",
+    "batyam": "\u05d1\u05ea \u05d9\u05dd",
+    "ramatgan": "\u05e8\u05de\u05ea \u05d2\u05df",
+    "givatayim": "\u05d2\u05d1\u05e2\u05ea\u05d9\u05d9\u05dd",
+    "nazareth": "\u05e0\u05e6\u05e8\u05ea",
+    "eilat": "\u05d0\u05d9\u05dc\u05ea",
+    "tiberias": "\u05d8\u05d1\u05e8\u05d9\u05d4",
+    "karmiel": "\u05db\u05e8\u05de\u05d9\u05d0\u05dc",
+    "afula": "\u05e2\u05e4\u05d5\u05dc\u05d4",
+    "hadera": "\u05d7\u05d3\u05e8\u05d4",
+    "kiryatgat": "\u05e7\u05e8\u05d9\u05ea \u05d2\u05ea",
+    "kiryatata": "\u05e7\u05e8\u05d9\u05ea \u05d0\u05ea\u05d0",
+    "kiryatshmona": "\u05e7\u05e8\u05d9\u05ea \u05e9\u05de\u05d5\u05e0\u05d4",
+    "kiryatmotzkin": "\u05e7\u05e8\u05d9\u05ea \u05de\u05d5\u05e6\u05e7\u05d9\u05df",
+    "kiryatbialik": "\u05e7\u05e8\u05d9\u05ea \u05d1\u05d9\u05d0\u05dc\u05d9\u05e7",
+    "kiryatyam": "\u05e7\u05e8\u05d9\u05ea \u05d9\u05dd",
+    "kiryatono": "\u05e7\u05e8\u05d9\u05ea \u05d0\u05d5\u05e0\u05d5",
+    "nahariya": "\u05e0\u05d4\u05e8\u05d9\u05d4",
+    "yavne": "\u05d9\u05d1\u05e0\u05d4",
+    "yavneh": "\u05d9\u05d1\u05e0\u05d4",
+    "lod": "\u05dc\u05d5\u05d3",
+    "ramla": "\u05e8\u05de\u05dc\u05d4",
+    "nesziona": "\u05e0\u05e1 \u05e6\u05d9\u05d5\u05e0\u05d4",
+    "oryehuda": "\u05d0\u05d5\u05e8 \u05d9\u05d4\u05d5\u05d3\u05d4",
+    "givatshmuel": "\u05d2\u05d1\u05e2\u05ea \u05e9\u05de\u05d5\u05d0\u05dc",
+    "mevaseretzion": "\u05de\u05d1\u05e9\u05e8\u05ea \u05e6\u05d9\u05d5\u05df",
+    "eeinbokek": "\u05e2\u05d9\u05df \u05d1\u05d5\u05e7\u05e7",
+    "modiinmaccabireut": "\u05de\u05d5\u05d3\u05d9\u05e2\u05d9\u05df \u05de\u05db\u05d1\u05d9\u05dd \u05e8\u05e2\u05d5\u05ea",
+}
+
+
+def normalize_city(raw: Optional[str]) -> Optional[str]:
+    """Normalize a city name to its canonical Hebrew form when a known mapping exists."""
+    if not raw:
+        return None
+    raw = raw.strip()
+    if not raw:
+        return None
+    key = _dedup_key(raw)
+    return CITY_NAME_MAP.get(key, raw)
+
+
+# Provider identifiers that represent the same underlying operator under
+# different naming conventions across sources -> canonical display name.
+PROVIDER_NAME_MAP: Dict[str, str] = {
+    "advicecpw": "Advice",
+    "lishatech": "Energy One",
+    "lishatechcpw": "Energy One",
+    "scalaev": "Scala Energy",
+    "zenev": "Zen Energy",
+    "interev": "InterEV",
+    "evedge": "EvEdge",
+    "sonolevi": "SonolEvi",
+}
+
+
+def normalize_provider(raw: Optional[str]) -> Optional[str]:
+    """Normalize a provider/operator name to its canonical display form."""
+    if not raw:
+        return None
+    raw = raw.strip()
+    if not raw:
+        return None
+    key = _dedup_key(raw)
+    return PROVIDER_NAME_MAP.get(key, raw)
+
+
 class SpatialGrid:
     """In-memory 2D spatial grid for fast O(1) radius proximity searches."""
 
@@ -193,6 +305,84 @@ def find_matching_location_id(
     return None
 
 
+def merge_source_generic(
+    cur: sqlite3.Cursor,
+    stations: List[Dict[str, Any]],
+    source_key: str,
+    spatial_index: SpatialGrid,
+    norm_name_to_ids: Dict[str, List[int]],
+    location_coords: Dict[int, Tuple[float, float]],
+    location_sources: Dict[int, Set[str]],
+    location_connectors: Dict[int, List[Dict[str, Any]]],
+    now_iso: str,
+    max_dist_meters: float = 150.0,
+) -> Tuple[int, int]:
+    """
+    Generic cross-referencing merge step shared by the enrichment sources:
+    matches each station against existing locations (spatial/name), tagging
+    the source and merging connectors; inserts a new location only when no
+    match is found and coordinates are available.
+    """
+    matched = 0
+    unique_inserted = 0
+
+    for st in stations:
+        lat = st.get("lat")
+        lng = st.get("lng")
+        name = st.get("name")
+        address = st.get("address")
+        city = st.get("city")
+        operator = normalize_provider(st.get("operator"))
+        st_conns = st.get("connectors") or []
+        cnt = st.get("count_total") or 1
+
+        matched_id = find_matching_location_id(
+            lat, lng, name, address,
+            spatial_index, norm_name_to_ids, location_coords,
+            max_dist_meters=max_dist_meters
+        )
+        if matched_id is not None:
+            location_sources[matched_id].add(source_key)
+            location_connectors[matched_id] = merge_connectors(
+                location_connectors.get(matched_id, []),
+                st_conns
+            )
+            matched += 1
+        else:
+            if lat is None or lng is None:
+                continue
+            connectors_json = json.dumps(st_conns, ensure_ascii=False)
+            cur.execute("""
+                INSERT INTO locations (
+                    cello_id, name, address, city, lat, lng,
+                    provider_id, provider_name, max_per_kwh, has_tariffs,
+                    payment_options, facilities, status_summary, connectors,
+                    stations_count, updated_at, sources, is_gov_official
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                None, name, address, city, lat, lng,
+                None, operator, None, 0,
+                "[]", "[]", "{}", connectors_json,
+                cnt, now_iso, source_key, 0
+            ))
+            loc_id = cur.lastrowid
+            location_sources[loc_id] = {source_key}
+            location_connectors[loc_id] = st_conns
+            location_coords[loc_id] = (lat, lng)
+            spatial_index.insert(loc_id, lat, lng)
+
+            nn = normalize_text(name)
+            if nn:
+                norm_name_to_ids.setdefault(nn, []).append(loc_id)
+            na = normalize_text(address)
+            if na and na != nn:
+                norm_name_to_ids.setdefault(na, []).append(loc_id)
+
+            unique_inserted += 1
+
+    return matched, unique_inserted
+
+
 # ==============================================================================
 # Source 1: CelloCharge (Backbone)
 # ==============================================================================
@@ -204,7 +394,7 @@ def fetch_cello_data() -> Tuple[Dict[str, Dict[str, Any]], List[Dict[str, Any]]]
       - GET /providers
       - GET /locations
     """
-    print("[1/5] מוריד נתונים מ-CelloCharge API (עמוד השדרה)...")
+    print("[1/9] מוריד נתונים מ-CelloCharge API (עמוד השדרה)...")
     headers = {
         "Authorization": f"Bearer {CELLO_TOKEN}",
         "User-Agent": USER_AGENTS[0],
@@ -245,7 +435,7 @@ def fetch_auto_coil() -> List[Dict[str, Any]]:
     Fetch charging stations from auto.co.il API.
     URL: https://www.auto.co.il/api/chargingStations/map/stations?CultureCode=he-IL
     """
-    print("[2/5] מוריד נתונים מ-auto.co.il...")
+    print("[2/9] מוריד נתונים מ-auto.co.il...")
     url = "https://www.auto.co.il/api/chargingStations/map/stations?CultureCode=he-IL"
     headers = {
         "User-Agent": USER_AGENTS[0],
@@ -346,7 +536,7 @@ def fetch_evm() -> List[Dict[str, Any]]:
     Fetch fast charging stations from evm.co.il static JS dataset.
     URL: https://www.evm.co.il/wp-content/evm-scripts/charging-map/data/CM.92dabf3.min.js
     """
-    print("[3/5] מוריד נתונים מ-evm.co.il...")
+    print("[3/9] מוריד נתונים מ-evm.co.il...")
     url = "https://www.evm.co.il/wp-content/evm-scripts/charging-map/data/CM.92dabf3.min.js"
     headers = {"User-Agent": USER_AGENTS[0]}
 
@@ -422,13 +612,13 @@ def fetch_evm() -> List[Dict[str, Any]]:
         lng = float(coords[1]) if coords and len(coords) >= 2 else None
 
         connectors: List[Dict[str, Any]] = []
-        if item.get("ct") and item.get("ct") > 0:
+        if (item.get("ct") or 0) > 0:
             connectors.append({"standard": "TESLA", "powerType": "DC", "maxPower": 250})
-        if item.get("sf") and item.get("sf") > 0:
+        if (item.get("sf") or 0) > 0:
             connectors.append({"standard": "CCS2_COMBO", "powerType": "DC", "maxPower": 150})
-        if item.get("cd") and item.get("cd") > (item.get("sf") or 0):
+        if (item.get("cd") or 0) > (item.get("sf") or 0):
             connectors.append({"standard": "CCS2_COMBO", "powerType": "DC", "maxPower": 50})
-        if item.get("ca") and item.get("ca") > 0:
+        if (item.get("ca") or 0) > 0:
             connectors.append({"standard": "TYPE2", "powerType": "AC", "maxPower": 22})
 
         count_total = item.get("cb") if item.get("cb") is not None else None
@@ -456,7 +646,7 @@ def fetch_data_gov() -> List[Dict[str, Any]]:
     Fetch charging stations from data.gov.il CKAN API (Ministry of Energy registry).
     Resource ID: 528482f2-d410-4d62-8b17-566ab23a1c52
     """
-    print("[4/5] מוריד נתונים מ-data.gov.il...")
+    print("[4/9] מוריד נתונים מ-data.gov.il...")
     base_url = "https://data.gov.il/api/3/action/datastore_search"
     resource_id = "528482f2-d410-4d62-8b17-566ab23a1c52"
     limit = 1000
@@ -562,7 +752,7 @@ def fetch_paz_data() -> List[Dict[str, Any]]:
     Supports live fetch with WAF bypass (via curl_cffi/scrapling or subprocess)
     and automatic caching fallback.
     """
-    print("[5/5] מוריד נתונים מ-Paz Charge (רשת פז / Yellow)...")
+    print("[5/9] מוריד נתונים מ-Paz Charge (רשת פז / Yellow)...")
     url = "https://www.paz.co.il/service-locator"
     raw_stations: List[Dict[str, Any]] = []
 
@@ -673,6 +863,302 @@ def fetch_paz_data() -> List[Dict[str, Any]]:
 
 
 # ==============================================================================
+# Source 6: InterEV EVGateway
+# ==============================================================================
+
+def fetch_interev() -> List[Dict[str, Any]]:
+    """
+    Fetch charging sites from InterEV's EVGateway map API.
+    URL: https://interevserver.evgateway.com/common/map/filter?search=null
+    """
+    print("[6/9] מוריד נתונים מ-InterEV EVGateway...")
+    url = "https://interevserver.evgateway.com/common/map/filter?search=null"
+    headers = {"User-Agent": USER_AGENTS[0], "Accept": "application/json"}
+
+    try:
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            raw_stations = json.loads(resp.read().decode("utf-8"))
+    except Exception as e:
+        print(f"  שגיאה בקריאת InterEV EVGateway: {e}")
+        return []
+
+    print(f"  התקבלו {len(raw_stations)} אתרים מ-InterEV EVGateway")
+
+    normalized: List[Dict[str, Any]] = []
+    for s in raw_stations:
+        name = (s.get("siteName") or "").strip() or None
+        addr_raw = (s.get("siteaddress") or "").strip()
+        address = addr_raw or None
+
+        city = None
+        if addr_raw:
+            parts = [p.strip() for p in addr_raw.split(",") if p.strip()]
+            if len(parts) >= 2:
+                city = parts[1]
+        city = normalize_city(city)
+
+        try:
+            lat = float(s["latitude"]) if s.get("latitude") is not None else None
+            lng = float(s["longitude"]) if s.get("longitude") is not None else None
+        except (TypeError, ValueError):
+            lat = lng = None
+
+        port_count = s.get("totalports") or s.get("stationCount") or None
+
+        # No connector/power spec exposed by this endpoint; rely on crossing
+        # with existing sources (or leave for manual enrichment).
+        normalized.append({
+            "name": name,
+            "address": address,
+            "city": city,
+            "lat": lat,
+            "lng": lng,
+            "operator": normalize_provider("InterEV"),
+            "connectors": [],
+            "count_total": port_count,
+            "raw": s,
+        })
+    return normalized
+
+
+# ==============================================================================
+# Source 7: Tesla Supercharger (supercharge.info)
+# ==============================================================================
+
+def fetch_tesla() -> List[Dict[str, Any]]:
+    """
+    Fetch Tesla Supercharger sites in Israel from the community-maintained
+    supercharge.info registry.
+    URL: https://supercharge.info/service/supercharge/allSites
+    """
+    print("[7/9] מוריד נתונים מ-Tesla Supercharger (supercharge.info)...")
+    url = "https://supercharge.info/service/supercharge/allSites"
+    headers = {"User-Agent": USER_AGENTS[0], "Accept": "application/json"}
+
+    raw_sites = None
+    for attempt in range(3):
+        try:
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                raw_sites = json.loads(resp.read().decode("utf-8"))
+            break
+        except Exception as e:
+            print(f"  אזהרה: ניסיון {attempt + 1} נכשל ({e}). מנסה שוב...")
+            time.sleep(2)
+
+    if raw_sites is None:
+        print("  שגיאה: לא הצליח להוריד נתונים מ-Tesla supercharge.info")
+        return []
+
+    il_sites = [
+        s for s in raw_sites
+        if isinstance(s.get("address"), dict) and s["address"].get("country") == "Israel"
+    ]
+    print(f"  התקבלו {len(il_sites)} אתרי סופרצ'ארג'ר בישראל מתוך {len(raw_sites)} אתרים עולמית")
+
+    normalized: List[Dict[str, Any]] = []
+    for s in il_sites:
+        # Skip non-operational sites (under construction / voting / permit stages)
+        if s.get("status") != "OPEN":
+            continue
+
+        name = (s.get("name") or "").strip() or None
+        addr = s.get("address") or {}
+        street = (addr.get("street") or "").strip() or None
+        city = normalize_city((addr.get("city") or "").strip() or None)
+
+        gps = s.get("gps") or {}
+        try:
+            lat = float(gps["latitude"]) if isinstance(gps, dict) and gps.get("latitude") is not None else None
+            lng = float(gps["longitude"]) if isinstance(gps, dict) and gps.get("longitude") is not None else None
+        except (TypeError, ValueError):
+            lat = lng = None
+
+        power = s.get("powerKilowatt") or 250
+        stall_count = s.get("stallCount") or None
+        plugs = s.get("plugs")
+        plugs = plugs if isinstance(plugs, dict) else {}
+
+        connectors: List[Dict[str, Any]] = []
+        if plugs.get("ccs2"):
+            connectors.append({"standard": "CCS2_COMBO", "powerType": "DC", "maxPower": power})
+        if plugs.get("tesla"):
+            connectors.append({"standard": "TESLA", "powerType": "DC", "maxPower": power})
+        if plugs.get("type2"):
+            connectors.append({"standard": "TYPE2", "powerType": "AC", "maxPower": 22})
+        if not connectors:
+            connectors.append({"standard": "TESLA", "powerType": "DC", "maxPower": power})
+
+        normalized.append({
+            "name": f"Tesla Supercharger - {name}" if name else "Tesla Supercharger",
+            "address": street,
+            "city": city,
+            "lat": lat,
+            "lng": lng,
+            "operator": normalize_provider("Tesla"),
+            "connectors": connectors,
+            "count_total": stall_count,
+            "raw": s,
+        })
+    return normalized
+
+
+# ==============================================================================
+# Source 8: Afcon ON Portal
+# ==============================================================================
+
+def fetch_afcon() -> List[Dict[str, Any]]:
+    """
+    Fetch charging sites from Afcon's ON Portal (station availability & metadata).
+    URL: POST https://account.afconev.co.il/stationFacade/findSitesInBounds
+    """
+    print("[8/9] מוריד נתונים מ-Afcon ON Portal...")
+    url = "https://account.afconev.co.il/stationFacade/findSitesInBounds"
+    body = json.dumps({
+        "bounds": {
+            "southWest": {"lat": 29.4, "lng": 34.1},
+            "northEast": {"lat": 33.4, "lng": 35.9},
+        },
+        "filter": {},
+    }).encode("utf-8")
+    headers = {
+        "User-Agent": USER_AGENTS[0],
+        "Content-Type": "application/json;charset=UTF-8",
+        "Accept": "application/json",
+        "Referer": "https://account.afconev.co.il/findCharger",
+    }
+
+    try:
+        req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+        with urllib.request.urlopen(req, timeout=25) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except Exception as e:
+        print(f"  שגיאה בקריאת Afcon ON Portal: {e}")
+        return []
+
+    sites = data.get("data") or []
+    print(f"  התקבלו {len(sites)} אתרים מ-Afcon ON Portal")
+
+    # Afcon station-class -> connector standard/power mapping
+    SCS_POWER = {
+        "SEMI_FAST": ("TYPE2", "AC", 22),
+        "FAST": ("CCS2_COMBO", "DC", 50),
+        "ULTRA_FAST": ("CCS2_COMBO", "DC", 150),
+    }
+
+    normalized: List[Dict[str, Any]] = []
+    for s in sites:
+        if s.get("deleted"):
+            continue
+
+        name = (s.get("dn") or "").strip() or None
+        try:
+            lat = float(s["latitude"]) if s.get("latitude") is not None else None
+            lng = float(s["longitude"]) if s.get("longitude") is not None else None
+        except (TypeError, ValueError):
+            lat = lng = None
+
+        connectors: List[Dict[str, Any]] = []
+        scs = s.get("scs")
+        if scs in SCS_POWER:
+            std, ptype, pwr = SCS_POWER[scs]
+            connectors.append({"standard": std, "powerType": ptype, "maxPower": pwr})
+
+        # No address/city exposed by this endpoint; matching relies on
+        # spatial proximity to attach availability/metadata to existing sites.
+        normalized.append({
+            "name": name,
+            "address": None,
+            "city": None,
+            "lat": lat,
+            "lng": lng,
+            "operator": normalize_provider("AfconEv"),
+            "connectors": connectors,
+            "count_total": s.get("ns") or None,
+            "raw": s,
+        })
+    return normalized
+
+
+# ==============================================================================
+# Source 9: Zen Energy
+# ==============================================================================
+
+def _extract_html_attr(block: str, attr: str) -> Optional[str]:
+    """Extract an HTML attribute value regardless of quote style (' or \")."""
+    m = re.search(attr + r'="([^"]*)"', block)
+    if m:
+        return m.group(1)
+    m = re.search(attr + r"='([^']*)'", block)
+    if m:
+        return m.group(1)
+    return None
+
+
+def fetch_zen() -> List[Dict[str, Any]]:
+    """
+    Fetch charging stations from Zen Energy's public locations page.
+    URL: https://zen-ev.com/locations (HTML with data-lat/data-lng attributes)
+    """
+    print("[9/9] מוריד נתונים מ-Zen Energy...")
+    url = "https://zen-ev.com/locations"
+    headers = {"User-Agent": USER_AGENTS[0]}
+
+    try:
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=25) as resp:
+            html = resp.read().decode("utf-8")
+    except Exception as e:
+        print(f"  שגיאה בקריאת Zen Energy: {e}")
+        return []
+
+    blocks = re.findall(r'<div class="map_section__item"(.*?)>\s*</div>', html, re.DOTALL)
+    print(f"  התקבלו {len(blocks)} אתרים מ-Zen Energy")
+
+    normalized: List[Dict[str, Any]] = []
+    for block in blocks:
+        name = (_extract_html_attr(block, "data-name") or "").strip() or None
+        address = (_extract_html_attr(block, "data-address") or "").strip() or None
+        city = normalize_city((_extract_html_attr(block, "data-city") or "").strip() or None)
+
+        lat_s = _extract_html_attr(block, "data-lat")
+        lng_s = _extract_html_attr(block, "data-lng")
+        try:
+            lat = float(lat_s) if lat_s else None
+            lng = float(lng_s) if lng_s else None
+        except ValueError:
+            lat = lng = None
+
+        try:
+            ac_count = int(_extract_html_attr(block, "data-chargers-ac") or 0)
+        except ValueError:
+            ac_count = 0
+        try:
+            dc_count = int(_extract_html_attr(block, "data-chargers-dc") or 0)
+        except ValueError:
+            dc_count = 0
+
+        connectors: List[Dict[str, Any]] = []
+        if ac_count > 0:
+            connectors.append({"standard": "TYPE2", "powerType": "AC", "maxPower": 22})
+        if dc_count > 0:
+            connectors.append({"standard": "CCS2_COMBO", "powerType": "DC", "maxPower": 50})
+
+        normalized.append({
+            "name": name,
+            "address": address,
+            "city": city,
+            "lat": lat,
+            "lng": lng,
+            "operator": normalize_provider("Zen Energy"),
+            "connectors": connectors,
+            "count_total": (ac_count + dc_count) or None,
+        })
+    return normalized
+
+
+# ==============================================================================
 # Database Schema & Initialization
 # ==============================================================================
 
@@ -739,6 +1225,10 @@ def build_database(db_path: str = DB_PATH) -> None:
     evm_stations = fetch_evm()
     gov_stations = fetch_data_gov()
     paz_stations = fetch_paz_data()
+    interev_stations = fetch_interev()
+    tesla_stations = fetch_tesla()
+    afcon_stations = fetch_afcon()
+    zen_stations = fetch_zen()
 
     # 2. Connect to database and clear/create tables
     conn = sqlite3.connect(db_path)
@@ -1095,10 +1585,61 @@ def build_database(db_path: str = DB_PATH) -> None:
     conn.commit()
     print(f"  ✓ Paz Charge: {paz_matched} הוצלבו עם אתר קיים, {paz_unique_inserted} אתרים ייחודיים נוספו")
 
+    # --------------------------------------------------------------------------
+    # Step F: Merge InterEV EVGateway (Spatial match <= 150m or normalized name match)
+    # --------------------------------------------------------------------------
+    print("\n[F] ממזג נתונים מ-InterEV EVGateway...")
+    interev_matched, interev_unique_inserted = merge_source_generic(
+        cur, interev_stations, "interev",
+        spatial_index, norm_name_to_ids, location_coords,
+        location_sources, location_connectors, now_iso,
+    )
+    conn.commit()
+    print(f"  ✓ InterEV: {interev_matched} הוצלבו עם אתר קיים, {interev_unique_inserted} אתרים ייחודיים נוספו")
+
+    # --------------------------------------------------------------------------
+    # Step G: Merge Tesla Supercharger (supercharge.info)
+    # --------------------------------------------------------------------------
+    print("\n[G] ממזג נתונים מ-Tesla Supercharger...")
+    tesla_matched, tesla_unique_inserted = merge_source_generic(
+        cur, tesla_stations, "tesla",
+        spatial_index, norm_name_to_ids, location_coords,
+        location_sources, location_connectors, now_iso,
+    )
+    conn.commit()
+    print(f"  ✓ Tesla: {tesla_matched} הוצלבו עם אתר קיים, {tesla_unique_inserted} אתרים ייחודיים נוספו")
+
+    # --------------------------------------------------------------------------
+    # Step H: Merge Afcon ON Portal (metadata/availability completion)
+    # --------------------------------------------------------------------------
+    print("\n[H] ממזג נתונים מ-Afcon ON Portal...")
+    afcon_matched, afcon_unique_inserted = merge_source_generic(
+        cur, afcon_stations, "afcon",
+        spatial_index, norm_name_to_ids, location_coords,
+        location_sources, location_connectors, now_iso,
+    )
+    conn.commit()
+    print(f"  ✓ Afcon: {afcon_matched} הוצלבו עם אתר קיים, {afcon_unique_inserted} אתרים ייחודיים נוספו")
+
+    # --------------------------------------------------------------------------
+    # Step I: Merge Zen Energy
+    # --------------------------------------------------------------------------
+    print("\n[I] ממזג נתונים מ-Zen Energy...")
+    zen_matched, zen_unique_inserted = merge_source_generic(
+        cur, zen_stations, "zen",
+        spatial_index, norm_name_to_ids, location_coords,
+        location_sources, location_connectors, now_iso,
+    )
+    conn.commit()
+    print(f"  ✓ Zen Energy: {zen_matched} הוצלבו עם אתר קיים, {zen_unique_inserted} אתרים ייחודיים נוספו")
+
     # Update sources, connectors, and is_gov_official across all locations
     print("\n🔄 מעדכן עמודות sources, connectors ו-is_gov_official...")
     update_batch = []
-    source_order = ["cello", "auto_coil", "evm", "data_gov", "paz"]
+    source_order = [
+        "cello", "auto_coil", "evm", "data_gov", "paz",
+        "interev", "tesla", "afcon", "zen",
+    ]
     for lid, src_set in location_sources.items():
         ordered_sources = [s for s in source_order if s in src_set]
         sources_str = ",".join(ordered_sources)
@@ -1110,7 +1651,30 @@ def build_database(db_path: str = DB_PATH) -> None:
     conn.commit()
 
     # --------------------------------------------------------------------------
-    # Step F: Statistics & Metadata
+    # Step J: Final normalization pass (city names & provider names)
+    # --------------------------------------------------------------------------
+    print("\n[J] מנרמל שמות ערים ומפעילים...")
+    cur.execute("SELECT id, city, provider_name FROM locations")
+    norm_batch = []
+    city_fixed = 0
+    provider_fixed = 0
+    for lid, city, provider_name in cur.fetchall():
+        new_city = normalize_city(city)
+        new_provider = normalize_provider(provider_name)
+        if new_city != city:
+            city_fixed += 1
+        if new_provider != provider_name:
+            provider_fixed += 1
+        if new_city != city or new_provider != provider_name:
+            norm_batch.append((new_city, new_provider, lid))
+
+    if norm_batch:
+        cur.executemany("UPDATE locations SET city = ?, provider_name = ? WHERE id = ?", norm_batch)
+        conn.commit()
+    print(f"  ✓ נורמלו {city_fixed} שמות ערים ו-{provider_fixed} שמות מפעילים")
+
+    # --------------------------------------------------------------------------
+    # Step K: Statistics & Metadata
     # --------------------------------------------------------------------------
     stats = print_statistics(conn)
     update_metadata(conn, stats)
@@ -1127,7 +1691,7 @@ def update_metadata(conn: sqlite3.Connection, stats: Dict[str, Any]) -> None:
         ("build_time", datetime.now().isoformat()),
         ("version", "2.1"),
         ("primary_source", "CelloCharge (Ministry of Energy)"),
-        ("sources_list", "cello, auto_coil, evm, data_gov, paz"),
+        ("sources_list", "cello, auto_coil, evm, data_gov, paz, interev, tesla, afcon, zen"),
         ("total_locations", str(stats.get("total", 0))),
         ("cello_locations", str(stats.get("cello_count", 0))),
         ("auto_coil_unique", str(stats.get("auto_unique", 0))),
@@ -1135,6 +1699,14 @@ def update_metadata(conn: sqlite3.Connection, stats: Dict[str, Any]) -> None:
         ("data_gov_unique", str(stats.get("gov_unique", 0))),
         ("paz_unique", str(stats.get("paz_unique", 0))),
         ("paz_locations", str(stats.get("paz_count", 0))),
+        ("interev_unique", str(stats.get("interev_unique", 0))),
+        ("interev_locations", str(stats.get("interev_count", 0))),
+        ("tesla_unique", str(stats.get("tesla_unique", 0))),
+        ("tesla_locations", str(stats.get("tesla_count", 0))),
+        ("afcon_unique", str(stats.get("afcon_unique", 0))),
+        ("afcon_locations", str(stats.get("afcon_count", 0))),
+        ("zen_unique", str(stats.get("zen_unique", 0))),
+        ("zen_locations", str(stats.get("zen_count", 0))),
         ("records_with_coords", str(stats.get("with_coords", 0))),
         ("records_with_tariffs", str(stats.get("with_tariffs", 0))),
         ("is_gov_official_count", str(stats.get("is_gov_count", 0))),
@@ -1178,6 +1750,14 @@ def print_statistics(conn: sqlite3.Connection) -> Dict[str, Any]:
     gov_count = cur.fetchone()[0]
     cur.execute("SELECT COUNT(*) FROM locations WHERE sources LIKE '%paz%'")
     paz_count = cur.fetchone()[0]
+    cur.execute("SELECT COUNT(*) FROM locations WHERE sources LIKE '%interev%'")
+    interev_count = cur.fetchone()[0]
+    cur.execute("SELECT COUNT(*) FROM locations WHERE sources LIKE '%tesla%'")
+    tesla_count = cur.fetchone()[0]
+    cur.execute("SELECT COUNT(*) FROM locations WHERE sources LIKE '%afcon%'")
+    afcon_count = cur.fetchone()[0]
+    cur.execute("SELECT COUNT(*) FROM locations WHERE sources LIKE '%zen%'")
+    zen_count = cur.fetchone()[0]
 
     # Unique additions
     cur.execute("SELECT COUNT(*) FROM locations WHERE sources = 'auto_coil'")
@@ -1188,6 +1768,14 @@ def print_statistics(conn: sqlite3.Connection) -> Dict[str, Any]:
     gov_unique = cur.fetchone()[0]
     cur.execute("SELECT COUNT(*) FROM locations WHERE sources = 'paz'")
     paz_unique = cur.fetchone()[0]
+    cur.execute("SELECT COUNT(*) FROM locations WHERE sources = 'interev'")
+    interev_unique = cur.fetchone()[0]
+    cur.execute("SELECT COUNT(*) FROM locations WHERE sources = 'tesla'")
+    tesla_unique = cur.fetchone()[0]
+    cur.execute("SELECT COUNT(*) FROM locations WHERE sources = 'afcon'")
+    afcon_unique = cur.fetchone()[0]
+    cur.execute("SELECT COUNT(*) FROM locations WHERE sources = 'zen'")
+    zen_unique = cur.fetchone()[0]
 
     print("\n" + "=" * 70)
     print(" 📊 דוח סיכום מסד נתוני עמדות טעינה לרכב חשמלי בישראל (גרסה 2.1)")
@@ -1205,6 +1793,10 @@ def print_statistics(conn: sqlite3.Connection) -> Dict[str, Any]:
     print(f"   - evm.co.il (הצלבה):        {evm_count:>5} אתרים ({evm_count / total_locations * 100:.1f}%) [ייחודיים שנוספו: {evm_unique}]")
     print(f"   - data.gov.il (הצלבה):      {gov_count:>5} אתרים ({gov_count / total_locations * 100:.1f}%) [ייחודיים שנוספו: {gov_unique}]")
     print(f"   - Paz Charge / Yellow (הצלבה): {paz_count:>5} אתרים ({paz_count / total_locations * 100:.1f}%) [ייחודיים שנוספו: {paz_unique}]")
+    print(f"   - InterEV EVGateway (הצלבה): {interev_count:>5} אתרים ({interev_count / total_locations * 100:.1f}%) [ייחודיים שנוספו: {interev_unique}]")
+    print(f"   - Tesla Supercharger (הצלבה): {tesla_count:>5} אתרים ({tesla_count / total_locations * 100:.1f}%) [ייחודיים שנוספו: {tesla_unique}]")
+    print(f"   - Afcon ON Portal (הצלבה):  {afcon_count:>5} אתרים ({afcon_count / total_locations * 100:.1f}%) [ייחודיים שנוספו: {afcon_unique}]")
+    print(f"   - Zen Energy (הצלבה):       {zen_count:>5} אתרים ({zen_count / total_locations * 100:.1f}%) [ייחודיים שנוספו: {zen_unique}]")
 
     print("\n 🔹 שילובי מקורות מובילים (Source Combinations):")
     for combo, cnt in source_combos[:8]:
@@ -1286,10 +1878,18 @@ def print_statistics(conn: sqlite3.Connection) -> Dict[str, Any]:
         "evm_count": evm_count,
         "gov_count": gov_count,
         "paz_count": paz_count,
+        "interev_count": interev_count,
+        "tesla_count": tesla_count,
+        "afcon_count": afcon_count,
+        "zen_count": zen_count,
         "auto_unique": auto_unique,
         "evm_unique": evm_unique,
         "gov_unique": gov_unique,
         "paz_unique": paz_unique,
+        "interev_unique": interev_unique,
+        "tesla_unique": tesla_unique,
+        "afcon_unique": afcon_unique,
+        "zen_unique": zen_unique,
     }
     return stats
 

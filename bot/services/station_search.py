@@ -1,7 +1,9 @@
+import re
 import sqlite3
 import math
 import json
 import asyncio
+import unicodedata
 from typing import Optional, Tuple, Union
 
 
@@ -285,3 +287,209 @@ async def find_nearby(
         connector_filter, speed_filter, max_price, limit, sort_by,
         return_all,
     )
+
+
+# ==============================================================================
+# Smart Text Search Engine
+# ==============================================================================
+
+# Transliteration table: English/mixed variants -> normalized Hebrew-ish key.
+# Used to allow queries like "beit shemesh" to match "בית שמש".
+# Keys are _normalized_ (lowercase, no spaces/punctuation) English spellings.
+_TRANSLIT_MAP: dict[str, str] = {
+    # Cities
+    "beitel": "ביתאל",
+    "telaviv": "תלאביב",
+    "telavivyafo": "תלאביביפו",
+    "jerusalem": "ירושלים",
+    "haifa": "חיפה",
+    "beitshemesh": "ביתשמש",
+    "netanya": "נתניה",
+    "rishonlezion": "ראשוןלציון",
+    "rishonlezziyon": "ראשוןלציון",
+    "petahtikva": "פתחתקווה",
+    "petachtikva": "פתחתקווה",
+    "beersheva": "באר שבע",
+    "beersheba": "בארשבע",
+    "holon": "חולון",
+    "ashdod": "אשדוד",
+    "ashkelon": "אשקלון",
+    "herzliya": "הרצליה",
+    "herzelia": "הרצליה",
+    "kfarsava": "כפרסבא",
+    "raanana": "רעננה",
+    "modiin": "מודיעין",
+    "rehovot": "רחובות",
+    "batyam": "בתים",
+    "ramatgan": "רמתגן",
+    "givatayim": "גבעתיים",
+    "nazareth": "נצרת",
+    "eilat": "אילת",
+    "tiberias": "טבריה",
+    "karmiel": "כרמיאל",
+    "afula": "עפולה",
+    "hadera": "חדרה",
+    "nahariya": "נהריה",
+    "yavne": "יבנה",
+    "yavneh": "יבנה",
+    "lod": "לוד",
+    "ramla": "רמלה",
+    # Operators / brands
+    "evgo": "evgo",
+    "yellev": "yellev",
+    "yellow": "yellow",
+    "paz": "פז",
+    "tesla": "tesla",
+    "interev": "interev",
+    "afcon": "afcon",
+    "zen": "zen",
+    "scala": "scala",
+}
+
+
+def _normalize_for_search(s: Optional[str]) -> str:
+    """
+    Normalize a string for fuzzy text search:
+    - Lowercase
+    - Strip Hebrew diacritics (ניקוד) in range U+05B0-U+05C7
+    - Remove all non-alphanumeric, non-Hebrew characters (spaces, hyphens, punctuation)
+    Returns a compact string suitable for substring matching.
+    """
+    if not s:
+        return ""
+    # Decompose and strip Hebrew diacritics (nikud U+05B0..U+05C7)
+    s = unicodedata.normalize("NFKD", s)
+    s = re.sub(r"[\u05b0-\u05c7]", "", s)
+    s = s.lower()
+    # Keep Hebrew letters and Latin alphanumerics only
+    s = re.sub(r"[^\u05d0-\u05ea\u05f0-\u05f4a-z0-9]", "", s)
+    return s
+
+
+def _score_match(query_norm: str, field_norm: str) -> int:
+    """
+    Return a match score:
+      3 — exact match
+      2 — field starts with query (prefix)
+      1 — field contains query (substring)
+      0 — no match
+    """
+    if not query_norm or not field_norm:
+        return 0
+    if field_norm == query_norm:
+        return 3
+    if field_norm.startswith(query_norm):
+        return 2
+    if query_norm in field_norm:
+        return 1
+    return 0
+
+
+def _search_stations_sync(
+    db_path: str,
+    query: str,
+    limit: int = 10,
+) -> list[dict]:
+    """
+    חיפוש טקסטואלי חכם לפי שם/עיר/כתובת עם תמיכה בנרמול עברית/אנגלית/תעתיקים.
+
+    דוגמאות:
+      "beit shemesh"  -> יתאים ל"בית שמש"
+      "herzliya"      -> יתאים ל"הרצליה"
+      "סופר"          -> יתאים לכל עמדה עם "סופר" בשם/כתובת
+      "tesla"         -> יתאים לכל עמדות Tesla
+
+    מחזיר רשימת dicts עם שדות: id, name, address, city, provider_name, lat, lng,
+    connectors, sources, match_score (גבוה יותר = התאמה טובה יותר).
+    """
+    if not query or not query.strip():
+        return []
+
+    raw_query = query.strip()
+    # Normalize the query for comparison
+    query_norm = _normalize_for_search(raw_query)
+
+    # Try to look up query in transliteration map (for English->Hebrew matching)
+    translit_target = _TRANSLIT_MAP.get(query_norm)
+
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute("""
+            SELECT
+                id, name, address, city,
+                lat, lng, provider_name, max_per_kwh,
+                has_tariffs, status_summary, connectors,
+                stations_count, is_gov_official, sources
+            FROM locations
+            WHERE
+                name LIKE :like
+                OR address LIKE :like
+                OR city LIKE :like
+                OR provider_name LIKE :like
+        """, {"like": f"%{raw_query}%"}).fetchall()
+
+    # If no direct LIKE match and we have a transliteration, search by that too
+    translit_rows: list = []
+    if translit_target and not rows:
+        with sqlite3.connect(db_path) as conn:
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.row_factory = sqlite3.Row
+            translit_rows = conn.execute("""
+                SELECT
+                    id, name, address, city,
+                    lat, lng, provider_name, max_per_kwh,
+                    has_tariffs, status_summary, connectors,
+                    stations_count, is_gov_official, sources
+                FROM locations
+                WHERE
+                    name LIKE :like
+                    OR address LIKE :like
+                    OR city LIKE :like
+                    OR provider_name LIKE :like
+            """, {"like": f"%{translit_target}%"}).fetchall()
+
+    all_rows = list(rows) + [r for r in translit_rows if r["id"] not in {row["id"] for row in rows}]
+
+    # Score and filter
+    scored: list[tuple[int, dict]] = []
+    for row in all_rows:
+        d = dict(row)
+        best_score = 0
+        for field in ("name", "address", "city", "provider_name"):
+            field_norm = _normalize_for_search(d.get(field))
+            s = _score_match(query_norm, field_norm)
+            # Also try transliteration match
+            if translit_target:
+                s2 = _score_match(_normalize_for_search(translit_target), field_norm)
+                s = max(s, s2)
+            best_score = max(best_score, s)
+        if best_score > 0:
+            d["match_score"] = best_score
+            scored.append((best_score, d))
+
+    # Sort: higher score first, then by name
+    scored.sort(key=lambda x: (-x[0], (x[1].get("name") or "")))
+    return [item for _, item in scored[:limit]]
+
+
+async def search_stations(
+    db_path: str,
+    query: str,
+    limit: int = 10,
+) -> list[dict]:
+    """
+    חיפוש טקסטואלי א-סינכרוני לפי שם/עיר/כתובת/מפעיל.
+    תומך בעברית, אנגלית ותעתיקים (למשל "beit shemesh" -> "בית שמש").
+
+    Args:
+        db_path: נתיב לקובץ SQLite של תחנות הטעינה.
+        query:   שאילתת החיפוש (טקסט חופשי).
+        limit:   מספר תוצאות מקסימלי (ברירת מחדל: 10).
+
+    Returns:
+        רשימת dicts של עמדות מתאימות, ממוינות לפי ציון התאמה יורד.
+        כל dict כולל את כל שדות הטבלה + שדה `match_score` (1-3).
+    """
+    return await asyncio.to_thread(_search_stations_sync, db_path, query, limit)
+
