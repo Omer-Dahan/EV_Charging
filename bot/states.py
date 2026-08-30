@@ -20,6 +20,8 @@ class UserSession:
     location_name: Optional[str] = None
     geocode_candidates: list = field(default_factory=list)
     sort_by: str = "distance"
+    admin_add_state: Optional[str] = None
+    admin_add_data: dict = field(default_factory=dict)
     _last_active: float = field(default_factory=time.monotonic)
 
     def touch(self) -> None:

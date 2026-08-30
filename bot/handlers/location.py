@@ -218,6 +218,11 @@ async def execute_search(
 
 
 def _is_text_search(e: events.NewMessage.Event) -> bool:
+    chat_id = e.chat_id
+    if chat_id is not None:
+        session = get_session(chat_id)
+        if getattr(session, "admin_add_state", None) is not None:
+            return False
     if bool(e.geo):
         return False
     text = (e.text or "").strip()
@@ -232,6 +237,9 @@ def register_handlers(client: TelegramClient) -> None:
     @client.on(events.NewMessage(func=lambda e: bool(e.geo)))
     async def handle_location(event: events.NewMessage.Event) -> None:
         chat_id = event.chat_id
+        session = get_session(chat_id)
+        if getattr(session, "admin_add_state", None) is not None:
+            return
         try:
             sender = await event.get_sender()
             first_name = getattr(sender, "first_name", "") or ""
@@ -369,6 +377,9 @@ def register_handlers(client: TelegramClient) -> None:
 
     @client.on(events.NewMessage(pattern=r"^(?:❌\s*)?ביטול$"))
     async def handle_cancel(event: events.NewMessage.Event) -> None:
+        session = get_session(event.chat_id)
+        if getattr(session, "admin_add_state", None) is not None:
+            return
         await event.respond(LOCATION_PROMPT_MESSAGE, buttons=Button.clear(), parse_mode="html")
 
     @client.on(events.CallbackQuery(pattern=rb"^loc:request"))
