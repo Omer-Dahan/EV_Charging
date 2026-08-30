@@ -1,6 +1,9 @@
+import asyncio
 from telethon import TelegramClient, events
 
+from bot.config import settings
 from bot.keyboards.inline import welcome_keyboard
+from bot.storage.users_db import ensure_user
 
 WELCOME_MESSAGE = (
     "⚡ <b>ברוך הבא לבוט עמדות הטעינה של ישראל!</b>\n\n"
@@ -16,8 +19,16 @@ WELCOME_MESSAGE = (
 def register_handlers(client: TelegramClient) -> None:
     @client.on(events.NewMessage(pattern=r'^/(start|help)'))
     async def handle_start(event: events.NewMessage.Event) -> None:
+        try:
+            sender = await event.get_sender()
+            first_name = getattr(sender, "first_name", "") or ""
+            username = getattr(sender, "username", "") or ""
+            asyncio.create_task(ensure_user(event.chat_id, first_name, username, settings.users_db_path))
+        except Exception:
+            pass
+
         await event.respond(
             WELCOME_MESSAGE,
-            buttons=welcome_keyboard(),
+            buttons=welcome_keyboard(is_private=event.is_private),
             parse_mode="html",
         )

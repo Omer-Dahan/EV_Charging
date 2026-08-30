@@ -20,7 +20,7 @@ from bot.services.geocoder import geocode, parse_coordinates
 from bot.services.map_renderer import render_map
 from bot.services.station_search import find_nearby, is_in_israel
 from bot.states import get_session
-from bot.storage.users_db import get_user_settings
+from bot.storage.users_db import ensure_user, get_user_settings, record_search_event
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +62,7 @@ MAP_CAPTION = (
 )
 
 
-def render_station_card(session) -> tuple[str, list]:
+def render_station_card(session, is_private: bool = True) -> tuple[str, list]:
     total = len(session.results)
     idx = session.current_idx
     station = session.results[idx]
@@ -83,6 +83,7 @@ def render_station_card(session) -> tuple[str, list]:
         sort_by=getattr(session, "sort_by", "distance"),
         user_lat=getattr(session, "user_lat", None),
         user_lng=getattr(session, "user_lng", None),
+        is_private=is_private,
     )
     return text, buttons
 
@@ -120,6 +121,14 @@ async def perform_search(
         "search chat_id=%s lat=%.3f lng=%.3f radius=%s results=%d all=%d loc=%s sort_by=%s",
         chat_id, lat, lng, radius_km, len(results), len(all_results), session.location_name, getattr(session, "sort_by", "distance"),
     )
+    try:
+        await record_search_event(
+            search_type="location" if location_name is None else "geocode",
+            results_count=len(results),
+            db_path=settings.users_db_path,
+        )
+    except Exception:
+        pass
     return results
 
 
@@ -193,7 +202,7 @@ async def execute_search(
             )
         else:
             await send_map_image(event, lat, lng, radius_km, session.all_results or results)
-            text, buttons = render_station_card(session)
+            text, buttons = render_station_card(session, is_private=event.is_private)
             result_msg = await event.respond(
                 text, buttons=buttons, parse_mode="html"
             )
@@ -223,6 +232,13 @@ def register_handlers(client: TelegramClient) -> None:
     @client.on(events.NewMessage(func=lambda e: bool(e.geo)))
     async def handle_location(event: events.NewMessage.Event) -> None:
         chat_id = event.chat_id
+        try:
+            sender = await event.get_sender()
+            first_name = getattr(sender, "first_name", "") or ""
+            username = getattr(sender, "username", "") or ""
+            asyncio.create_task(ensure_user(chat_id, first_name, username, settings.users_db_path))
+        except Exception:
+            pass
         session = get_session(chat_id)
         session.location_name = None
         await execute_search(event, chat_id, event.geo.lat, event.geo.long, location_name=None)
@@ -230,6 +246,13 @@ def register_handlers(client: TelegramClient) -> None:
     @client.on(events.NewMessage(func=_is_text_search))
     async def handle_text_query(event: events.NewMessage.Event) -> None:
         chat_id = event.chat_id
+        try:
+            sender = await event.get_sender()
+            first_name = getattr(sender, "first_name", "") or ""
+            username = getattr(sender, "username", "") or ""
+            asyncio.create_task(ensure_user(chat_id, first_name, username, settings.users_db_path))
+        except Exception:
+            pass
         raw_text = event.text.strip()
 
         # 1. בדיקה אם נשלחו קואורדינטות ישירות או לינק מפות
@@ -245,7 +268,7 @@ def register_handlers(client: TelegramClient) -> None:
         if "," not in raw_text:
             await event.respond(
                 MISSING_CITY_MESSAGE,
-                buttons=welcome_keyboard(),
+                buttons=welcome_keyboard(is_private=event.is_private),
                 parse_mode="html",
             )
             return
@@ -268,7 +291,7 @@ def register_handlers(client: TelegramClient) -> None:
                     pass
                 await event.respond(
                     NO_GEOCODE_RESULTS.format(query=html.escape(raw_text)),
-                    buttons=welcome_keyboard(),
+                    buttons=welcome_keyboard(is_private=event.is_private),
                     parse_mode="html",
                 )
                 return

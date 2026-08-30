@@ -14,6 +14,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from bot.config import settings
 from bot.services.station_search import apply_smart_mix, get_station_max_power, haversine_km
+from bot.storage.users_db import record_map_event
 
 logger = logging.getLogger(__name__)
 
@@ -521,8 +522,33 @@ async def render_map(user_lat: float, user_lng: float, radius_km: float, station
         if api_key:
             path = await asyncio.to_thread(_render_map_geoapify_sync, user_lat, user_lng, radius_km, filtered_stations, api_key)
             if path is not None:
+                try:
+                    await record_map_event("geoapify", success=True, db_path=settings.users_db_path)
+                except Exception:
+                    pass
                 return path
-        return await asyncio.to_thread(_render_map_sync, user_lat, user_lng, radius_km, filtered_stations)
+            else:
+                try:
+                    await record_map_event("osm_fallback", success=True, db_path=settings.users_db_path)
+                except Exception:
+                    pass
+        else:
+            try:
+                await record_map_event("osm", success=True, db_path=settings.users_db_path)
+            except Exception:
+                pass
+
+        osm_path = await asyncio.to_thread(_render_map_sync, user_lat, user_lng, radius_km, filtered_stations)
+        if osm_path is None:
+            try:
+                await record_map_event("failed", success=False, db_path=settings.users_db_path)
+            except Exception:
+                pass
+        return osm_path
     except Exception:
         logger.exception("failed to render map for lat=%.4f lng=%.4f radius=%s", user_lat, user_lng, radius_km)
+        try:
+            await record_map_event("failed", success=False, db_path=settings.users_db_path)
+        except Exception:
+            pass
         return None

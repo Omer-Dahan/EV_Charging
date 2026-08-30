@@ -54,7 +54,7 @@ def register_handlers(client: TelegramClient) -> None:
                     return
                 if session.current_idx < len(session.results) - 1:
                     session.current_idx += 1
-                text, buttons = render_station_card(session)
+                text, buttons = render_station_card(session, is_private=event.is_private)
                 await event.edit(text, buttons=buttons, parse_mode="html")
 
             elif action == "prev":
@@ -63,21 +63,21 @@ def register_handlers(client: TelegramClient) -> None:
                     return
                 if session.current_idx > 0:
                     session.current_idx -= 1
-                text, buttons = render_station_card(session)
+                text, buttons = render_station_card(session, is_private=event.is_private)
                 await event.edit(text, buttons=buttons, parse_mode="html")
 
             elif action == "back_to_results":
                 if session.results:
-                    text, buttons = render_station_card(session)
+                    text, buttons = render_station_card(session, is_private=event.is_private)
                     await event.edit(text, buttons=buttons, parse_mode="html")
                 else:
-                    await event.edit(LOCATION_PROMPT_MESSAGE, buttons=welcome_keyboard(), parse_mode="html")
+                    await event.edit(LOCATION_PROMPT_MESSAGE, buttons=welcome_keyboard(is_private=event.is_private), parse_mode="html")
 
             elif action == "new_search":
-                await event.edit(LOCATION_PROMPT_MESSAGE, buttons=welcome_keyboard(), parse_mode="html")
+                await event.edit(LOCATION_PROMPT_MESSAGE, buttons=welcome_keyboard(is_private=event.is_private), parse_mode="html")
 
             elif action == "back_to_welcome":
-                await event.edit(WELCOME_MESSAGE, buttons=welcome_keyboard(), parse_mode="html")
+                await event.edit(WELCOME_MESSAGE, buttons=welcome_keyboard(is_private=event.is_private), parse_mode="html")
         except Exception:
             logger.exception("error handling nav callback for chat_id=%s", chat_id)
             await event.answer(ERROR_GENERIC, alert=True)
@@ -128,7 +128,7 @@ def register_handlers(client: TelegramClient) -> None:
                 )
                 return
 
-            text, buttons = render_station_card(session)
+            text, buttons = render_station_card(session, is_private=event.is_private)
             await event.edit(text, buttons=buttons, parse_mode="html")
         except Exception:
             logger.exception("error handling range callback for chat_id=%s", chat_id)
@@ -156,7 +156,7 @@ def register_handlers(client: TelegramClient) -> None:
             session.results = sort_stations(session.results, sort_by=sort_by)
             session.current_idx = 0
 
-            text, buttons = render_station_card(session)
+            text, buttons = render_station_card(session, is_private=event.is_private)
             await event.answer()
             await event.edit(text, buttons=buttons, parse_mode="html")
         except Exception:
