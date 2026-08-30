@@ -437,7 +437,6 @@ def register_handlers(client: TelegramClient) -> None:
 
         sender_id = event.sender_id or chat_id
         if not is_admin(sender_id):
-            reset_admin_wizard_state(chat_id)
             return
 
         raw_text = (event.text or "").strip()
