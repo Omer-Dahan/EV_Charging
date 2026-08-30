@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     admin_chat_id: Optional[int] = Field(default=None, alias="ADMIN_CHAT_ID")
     debug: bool = Field(default=False, alias="DEBUG")
     map_provider_key: str = Field(default="", alias="MAP_PROVIDER_KEY")
+    rate_limit_per_minute: int = Field(default=20, alias="RATE_LIMIT_PER_MINUTE")
+    rate_limit_daily: int = Field(default=200, alias="RATE_LIMIT_DAILY")
 
     @field_validator("admin_id", "admin_chat_id", mode="before")
     @classmethod
