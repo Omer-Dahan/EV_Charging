@@ -704,6 +704,123 @@ class TestAdminAddStationWizard(unittest.IsolatedAsyncioTestCase):
             cancel_cb.edit.assert_called_once()
             self.assertIn("בוטלה", cancel_cb.edit.call_args[0][0])
 
+    def test_insert_manual_station_length_validations(self):
+        from bot.handlers.admin import _insert_manual_station_sync
+
+        valid_base = {
+            "name": "עמדה תקינה",
+            "address": "רחוב תקין 1, תל אביב",
+            "lat": 32.0853,
+            "lng": 34.7818,
+            "provider": "EV-Edge",
+        }
+
+        # Name too long (> 150)
+        bad_name = dict(valid_base, name="א" * 151)
+        with self.assertRaises(ValueError) as ctx:
+            _insert_manual_station_sync(self.stations_db_path, bad_name)
+        self.assertIn("150", str(ctx.exception))
+
+        # Address too long (> 200)
+        bad_addr = dict(valid_base, address="א" * 201)
+        with self.assertRaises(ValueError) as ctx:
+            _insert_manual_station_sync(self.stations_db_path, bad_addr)
+        self.assertIn("200", str(ctx.exception))
+
+        # Explicit city too long (> 100)
+        bad_city = dict(valid_base, city="א" * 101)
+        with self.assertRaises(ValueError) as ctx:
+            _insert_manual_station_sync(self.stations_db_path, bad_city)
+        self.assertIn("100", str(ctx.exception))
+
+        # Provider too long (> 80)
+        bad_prov = dict(valid_base, provider="א" * 81)
+        with self.assertRaises(ValueError) as ctx:
+            _insert_manual_station_sync(self.stations_db_path, bad_prov)
+        self.assertIn("80", str(ctx.exception))
+
+    def test_parse_connectors_input_length_validation(self):
+        long_connectors = "CCS2 150kW, " * 50  # > 500 chars
+        with self.assertRaises(ValueError) as ctx:
+            parse_connectors_input(long_connectors)
+        self.assertIn("500", str(ctx.exception))
+
+    async def test_wizard_field_length_rejections(self):
+        mock_client = MagicMock()
+        registered_handlers = []
+
+        def mock_on(event_builder):
+            def decorator(f):
+                registered_handlers.append((event_builder, f))
+                return f
+            return decorator
+
+        mock_client.on = mock_on
+        register_handlers(mock_client)
+
+        cb_handler = registered_handlers[1][1]
+        wizard_handler = registered_handlers[2][1]
+
+        admin_id = 999999999
+        session = get_session(admin_id)
+
+        with patch("bot.config.settings.admin_id", admin_id), \
+             patch("bot.config.settings.db_path", self.stations_db_path):
+
+            # Start wizard -> state: name
+            cb_event = AsyncMock(sender_id=admin_id, chat_id=admin_id, data=b"admin:add_station")
+            await cb_handler(cb_event)
+            self.assertEqual(session.admin_add_state, "name")
+
+            # 1. Oversized name (> 150) -> should reject and stay in state 'name'
+            msg_long_name = AsyncMock(sender_id=admin_id, chat_id=admin_id, text="א" * 151, geo=None)
+            await wizard_handler(msg_long_name)
+            self.assertEqual(session.admin_add_state, "name")
+            msg_long_name.respond.assert_called_once()
+            self.assertIn("150", msg_long_name.respond.call_args[0][0])
+
+            # Valid name -> advance to 'address'
+            msg_valid_name = AsyncMock(sender_id=admin_id, chat_id=admin_id, text="עמדה טובה", geo=None)
+            await wizard_handler(msg_valid_name)
+            self.assertEqual(session.admin_add_state, "address")
+
+            # 2. Oversized address (> 200) -> should reject and stay in state 'address'
+            msg_long_addr = AsyncMock(sender_id=admin_id, chat_id=admin_id, text="ב" * 201, geo=None)
+            await wizard_handler(msg_long_addr)
+            self.assertEqual(session.admin_add_state, "address")
+            msg_long_addr.respond.assert_called_once()
+            self.assertIn("200", msg_long_addr.respond.call_args[0][0])
+
+            # Valid address -> advance to 'coords'
+            msg_valid_addr = AsyncMock(sender_id=admin_id, chat_id=admin_id, text="רחוב הרצל 1, תל אביב", geo=None)
+            await wizard_handler(msg_valid_addr)
+            self.assertEqual(session.admin_add_state, "coords")
+
+            # Valid coords -> advance to 'provider'
+            msg_coords = AsyncMock(sender_id=admin_id, chat_id=admin_id, text="32.0853, 34.7818", geo=None)
+            await wizard_handler(msg_coords)
+            self.assertEqual(session.admin_add_state, "provider")
+
+            # 3. Oversized provider (> 80) -> should reject and stay in state 'provider'
+            msg_long_prov = AsyncMock(sender_id=admin_id, chat_id=admin_id, text="ג" * 81, geo=None)
+            await wizard_handler(msg_long_prov)
+            self.assertEqual(session.admin_add_state, "provider")
+            msg_long_prov.respond.assert_called_once()
+            self.assertIn("80", msg_long_prov.respond.call_args[0][0])
+
+            # Valid provider -> advance to 'connectors'
+            msg_valid_prov = AsyncMock(sender_id=admin_id, chat_id=admin_id, text="EV-Edge", geo=None)
+            await wizard_handler(msg_valid_prov)
+            self.assertEqual(session.admin_add_state, "connectors")
+
+            # 4. Oversized connectors (> 500) -> should reject and stay in state 'connectors'
+            msg_long_conn = AsyncMock(sender_id=admin_id, chat_id=admin_id, text="CCS2 150kW, " * 50, geo=None)
+            await wizard_handler(msg_long_conn)
+            self.assertEqual(session.admin_add_state, "connectors")
+            msg_long_conn.respond.assert_called_once()
+            self.assertIn("500", msg_long_conn.respond.call_args[0][0])
+
+
 
 if __name__ == "__main__":
     unittest.main()

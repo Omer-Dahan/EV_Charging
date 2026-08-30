@@ -27,6 +27,13 @@ from bot.services.bot_health import (
 
 logger = logging.getLogger(__name__)
 
+MAX_NAME_LENGTH = 150
+MAX_ADDRESS_LENGTH = 200
+MAX_CITY_LENGTH = 100
+MAX_PROVIDER_LENGTH = 80
+MAX_CONNECTORS_LENGTH = 500
+
+
 
 def admin_keyboard() -> list[list[Button]]:
     """כפתורי לוח הבקרה למנהל."""
@@ -97,6 +104,8 @@ def parse_admin_coordinates(text: str) -> Optional[Tuple[float, float]]:
 def parse_connectors_input(text: str) -> list[dict]:
     """מפענח מחרוזת מחברים חופשית (לדוגמה 'CCS2 150kW, Type2 22kW') למבנה JSON של עמדה."""
     cleaned = text.strip()
+    if len(cleaned) > MAX_CONNECTORS_LENGTH:
+        raise ValueError(f"פירוט המחברים ארוך מדי (מקסימום {MAX_CONNECTORS_LENGTH} תווים)")
     if not cleaned or cleaned.lower() in ("-", "דלג", "ללא", "none", "skip"):
         return []
 
@@ -202,19 +211,32 @@ def format_admin_station_summary(data: dict) -> str:
 def _insert_manual_station_sync(db_path: str, data: dict) -> int:
     """הכנסת עמדה חדשה לטבלת locations ב-SQLite באופן סינכרוני."""
     cello_id = data.get("cello_id") or f"MANUAL_{uuid.uuid4().hex[:12].upper()}"
-    name = data.get("name", "")
-    address = data.get("address", "")
-    city = data.get("city", "")
+    name = (data.get("name") or "").strip()
+    if len(name) > MAX_NAME_LENGTH:
+        raise ValueError(f"השם ארוך מדי (מקסימום {MAX_NAME_LENGTH} תווים)")
+
+    address = (data.get("address") or "").strip()
+    if len(address) > MAX_ADDRESS_LENGTH:
+        raise ValueError(f"הכתובת ארוכה מדי (מקסימום {MAX_ADDRESS_LENGTH} תווים)")
+
+    city = (data.get("city") or "").strip()
     if not city and address:
         parts = [p.strip() for p in address.split(",") if p.strip()]
         if len(parts) > 1:
             city = parts[-1]
         else:
             city = parts[0]
+        if len(city) > MAX_CITY_LENGTH:
+            city = city[:MAX_CITY_LENGTH]
+    elif len(city) > MAX_CITY_LENGTH:
+        raise ValueError(f"שם העיר ארוך מדי (מקסימום {MAX_CITY_LENGTH} תווים)")
 
     lat = float(data["lat"])
     lng = float(data["lng"])
-    provider = data.get("provider", "ידני") or "ידני"
+    provider = (data.get("provider") or "ידני").strip() or "ידני"
+    if len(provider) > MAX_PROVIDER_LENGTH:
+        raise ValueError(f"שם המפעיל ארוך מדי (מקסימום {MAX_PROVIDER_LENGTH} תווים)")
+
     max_per_kwh = data.get("price")
     if max_per_kwh is not None:
         try:
@@ -415,6 +437,9 @@ def register_handlers(client: TelegramClient) -> None:
                     buttons=admin_keyboard(),
                     parse_mode="html",
                 )
+            except ValueError as e:
+                logger.warning("Validation error saving new manual station for sender_id=%s: %s", sender_id, e)
+                await event.answer(f"❌ {e}", alert=True)
             except Exception:
                 logger.exception("Error saving new manual station for sender_id=%s", sender_id)
                 await event.answer("❌ אירעה שגיאה בעת שמירת העמדה במאגר.", alert=True)
@@ -457,6 +482,14 @@ def register_handlers(client: TelegramClient) -> None:
             if not raw_text:
                 await event.respond("❌ אנא הזן שם עמדה תקין:", buttons=admin_wizard_cancel_keyboard(), parse_mode="html")
                 return
+            if len(raw_text) > MAX_NAME_LENGTH:
+                await event.respond(
+                    f"❌ <b>השם ארוך מדי</b> (מקסימום {MAX_NAME_LENGTH} תווים).\n"
+                    "אנא הזן שם קצר יותר:",
+                    buttons=admin_wizard_cancel_keyboard(),
+                    parse_mode="html",
+                )
+                return
             session.admin_add_data["name"] = raw_text
             session.admin_add_state = "address"
             await event.respond(
@@ -469,6 +502,14 @@ def register_handlers(client: TelegramClient) -> None:
         elif state == "address":
             if not raw_text:
                 await event.respond("❌ אנא הזן כתובת תקינה:", buttons=admin_wizard_cancel_keyboard(), parse_mode="html")
+                return
+            if len(raw_text) > MAX_ADDRESS_LENGTH:
+                await event.respond(
+                    f"❌ <b>הכתובת ארוכה מדי</b> (מקסימום {MAX_ADDRESS_LENGTH} תווים).\n"
+                    "אנא הזן כתובת קצרה יותר:",
+                    buttons=admin_wizard_cancel_keyboard(),
+                    parse_mode="html",
+                )
                 return
             session.admin_add_data["address"] = raw_text
             session.admin_add_state = "coords"
@@ -525,6 +566,14 @@ def register_handlers(client: TelegramClient) -> None:
             if not raw_text:
                 await event.respond("❌ אנא הזן שם מפעיל:", buttons=admin_wizard_cancel_keyboard(), parse_mode="html")
                 return
+            if len(raw_text) > MAX_PROVIDER_LENGTH:
+                await event.respond(
+                    f"❌ <b>שם המפעיל ארוך מדי</b> (מקסימום {MAX_PROVIDER_LENGTH} תווים).\n"
+                    "אנא הזן שם מפעיל קצר יותר:",
+                    buttons=admin_wizard_cancel_keyboard(),
+                    parse_mode="html",
+                )
+                return
             session.admin_add_data["provider"] = raw_text
             session.admin_add_state = "connectors"
             await event.respond(
@@ -537,7 +586,23 @@ def register_handlers(client: TelegramClient) -> None:
             )
 
         elif state == "connectors":
-            connectors = parse_connectors_input(raw_text)
+            if len(raw_text) > MAX_CONNECTORS_LENGTH:
+                await event.respond(
+                    f"❌ <b>פירוט המחברים ארוך מדי</b> (מקסימום {MAX_CONNECTORS_LENGTH} תווים).\n"
+                    "אנא הזן פירוט קצר יותר או שלח <code>-</code> / <code>דלג</code>:",
+                    buttons=admin_wizard_cancel_keyboard(),
+                    parse_mode="html",
+                )
+                return
+            try:
+                connectors = parse_connectors_input(raw_text)
+            except ValueError as e:
+                await event.respond(
+                    f"❌ <b>{html.escape(str(e))}</b>\nאנא נסה שוב:",
+                    buttons=admin_wizard_cancel_keyboard(),
+                    parse_mode="html",
+                )
+                return
             session.admin_add_data["connectors"] = connectors
             session.admin_add_state = "price"
             await event.respond(

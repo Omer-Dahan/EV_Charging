@@ -40,8 +40,8 @@ async def init_users_db(db_path: str) -> None:
         if "map_format" not in columns:
             try:
                 await db.execute("ALTER TABLE users ADD COLUMN map_format TEXT DEFAULT 'document'")
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Failed to add map_format column during migration: %s", e)
         await db.execute("""
             CREATE TABLE IF NOT EXISTS search_events (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,

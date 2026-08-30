@@ -83,6 +83,27 @@ class TestMapFormatDB(unittest.IsolatedAsyncioTestCase):
         user_777 = await get_user_settings(777, mig_db_path)
         self.assertEqual(user_777.map_format, "document")
 
+    async def test_db_migration_warning_logged_on_failure(self):
+        mig_db_path = os.path.join(self.temp_dir.name, "fail_mig_users.db")
+        conn = sqlite3.connect(mig_db_path)
+        conn.execute("CREATE TABLE users (chat_id INTEGER PRIMARY KEY)")
+        conn.commit()
+        conn.close()
+
+        import aiosqlite
+        orig_execute = aiosqlite.Connection.execute
+
+        async def fake_execute(self, sql, *args, **kwargs):
+            if "ALTER TABLE users ADD COLUMN map_format" in sql:
+                raise Exception("database is locked")
+            return await orig_execute(self, sql, *args, **kwargs)
+
+        with patch("bot.storage.users_db.logger.warning") as mock_logger_warning, \
+             patch.object(aiosqlite.Connection, "execute", new=fake_execute):
+            await init_users_db(mig_db_path)
+            mock_logger_warning.assert_called_once()
+            self.assertIn("Failed to add map_format column", mock_logger_warning.call_args[0][0])
+
 
 class TestSettingsKeyboardsAndHandlers(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
