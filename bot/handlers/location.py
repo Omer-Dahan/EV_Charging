@@ -138,6 +138,7 @@ async def send_map_image(
     lng: float,
     radius_km: int,
     results: list[dict],
+    map_format: Optional[str] = None,
 ) -> None:
     """שולח תמונת מפה בנפרד מכרטיסיית העמדה. כשלון כאן (רשת, שגיאת רינדור וכו')
     לא אמור לחסום את החיפוש - לכן נבלע ונרשם ללוג בלבד."""
@@ -146,10 +147,18 @@ async def send_map_image(
         if map_path is None:
             return
         try:
+            if map_format is None:
+                chat_id = getattr(event, "chat_id", None)
+                if chat_id is not None:
+                    user_settings = await get_user_settings(chat_id, settings.users_db_path)
+                    map_format = user_settings.map_format
+                else:
+                    map_format = "document"
+            force_doc = (map_format != "photo")
             await event.respond(
                 file=map_path,
                 message=MAP_CAPTION,
-                force_document=True,
+                force_document=force_doc,
             )
         finally:
             try:
@@ -201,7 +210,14 @@ async def execute_search(
                 parse_mode="html",
             )
         else:
-            await send_map_image(event, lat, lng, radius_km, session.all_results or results)
+            await send_map_image(
+                event,
+                lat,
+                lng,
+                radius_km,
+                session.all_results or results,
+                map_format=user_settings.map_format,
+            )
             text, buttons = render_station_card(session, is_private=event.is_private)
             result_msg = await event.respond(
                 text, buttons=buttons, parse_mode="html"

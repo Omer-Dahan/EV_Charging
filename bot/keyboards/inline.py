@@ -132,6 +132,9 @@ def settings_main_keyboard() -> list:
             Button.inline("💰 מחיר מקסימלי", data=b"settings:price"),
         ],
         [
+            Button.inline("🗺️ מפה: קובץ / תמונה", data=b"settings:mapfmt"),
+        ],
+        [
             Button.inline("↩️ חזרה לתוצאות", data=b"nav:back_to_results"),
         ],
     ]
@@ -203,3 +206,21 @@ def price_keyboard(current) -> list:
             Button.inline("↩️ חזרה", data=b"settings:main"),
         ],
     ]
+
+
+def map_format_keyboard(current: str) -> list:
+    def mark(val: str, label: str) -> str:
+        return f"✅ {label}" if current == val else label
+
+    return [
+        [
+            Button.inline(mark("document", "📄 קובץ (חד, ללא דחיסה)"), data=b"settings:mapfmt:document"),
+        ],
+        [
+            Button.inline(mark("photo", "🖼️ תמונה (תצוגה ישירה בצ'אט)"), data=b"settings:mapfmt:photo"),
+        ],
+        [
+            Button.inline("↩️ חזרה", data=b"settings:main"),
+        ],
+    ]
+

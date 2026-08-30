@@ -6,6 +6,7 @@ from bot.config import settings as app_settings
 from bot.handlers.location import ERROR_GENERIC
 from bot.keyboards.inline import (
     connector_keyboard,
+    map_format_keyboard,
     price_keyboard,
     range_keyboard,
     settings_main_keyboard,
@@ -36,12 +37,18 @@ PRICE_DISPLAY = {
     2.5: 'עד 2.50 ₪ לקוט"ש',
 }
 
+MAP_FORMAT_DISPLAY = {
+    "document": "📄 קובץ (חד, ללא דחיסה)",
+    "photo": "🖼️ תמונה (תצוגה ישירה)",
+}
+
 SETTINGS_MAIN_TEMPLATE = (
     "⚙️ <b>הגדרות חיפוש</b>\n\n"
     "🔌 <b>סוג שקע:</b> {connector_display}\n"
     "⚡ <b>מהירות טעינה:</b> {speed_display}\n"
     '📏 <b>רדיוס ברירת מחדל:</b> {default_radius} ק"מ\n'
-    "💰 <b>מחיר מקסימלי:</b> {price_display}\n\n"
+    "💰 <b>מחיר מקסימלי:</b> {price_display}\n"
+    "🗺️ <b>פורמט מפה:</b> {map_format_display}\n\n"
     "בחר הגדרה לשינוי:"
 )
 
@@ -55,6 +62,7 @@ async def _render_main_text(chat_id: int) -> str:
         speed_display=SPEED_DISPLAY.get(user_settings.speed_filter, "הכל (ללא סינון)"),
         default_radius=user_settings.default_radius,
         price_display=PRICE_DISPLAY.get(user_settings.max_price, "ללא הגבלה"),
+        map_format_display=MAP_FORMAT_DISPLAY.get(user_settings.map_format, "📄 קובץ (חד, ללא דחיסה)"),
     )
 
 
@@ -100,6 +108,17 @@ async def show_price(event: events.CallbackQuery.Event) -> None:
     )
 
 
+async def show_map_format(event: events.CallbackQuery.Event) -> None:
+    chat_id = event.chat_id
+    user_settings = await get_user_settings(chat_id, app_settings.users_db_path)
+    await event.edit(
+        "🗺️ <b>בחר פורמט לשליחת המפה:</b>\n\n"
+        "• <b>קובץ (Document):</b> נשלח ללא דחיסה, באיכות וחדות מקסימלית (מופיע כקובץ להורדה/פתיחה).\n"
+        "• <b>תמונה (Photo):</b> מוצגת מיד בצ'אט ומאפשרת צפייה נוחה ומהירה (נדחסת מעט ע\"י טלגרם).",
+        buttons=map_format_keyboard(user_settings.map_format),
+        parse_mode="html",
+    )
+
 
 async def _save_and_return(event: events.CallbackQuery.Event, **field) -> None:
     chat_id = event.chat_id
@@ -130,6 +149,14 @@ def register_handlers(client: TelegramClient) -> None:
                 await show_range(event)
             elif data == "settings:price":
                 await show_price(event)
+            elif data == "settings:mapfmt":
+                await show_map_format(event)
+            elif data.startswith("settings:mapfmt:"):
+                fmt_val = data.split(":", 2)[2]
+                if fmt_val not in ("document", "photo"):
+                    await event.answer(ERROR_GENERIC, alert=True)
+                    return
+                await _save_and_return(event, map_format=fmt_val)
         except Exception:
             logger.exception("error handling settings callback for chat_id=%s", event.chat_id)
             await event.answer(ERROR_GENERIC, alert=True)
@@ -178,6 +205,11 @@ def register_handlers(client: TelegramClient) -> None:
                         await event.answer(ERROR_GENERIC, alert=True)
                         return
                 await _save_and_return(event, max_price=max_price)
+            elif filter_type == "mapfmt":
+                if value not in ("document", "photo"):
+                    await event.answer(ERROR_GENERIC, alert=True)
+                    return
+                await _save_and_return(event, map_format=value)
             else:
                 # Unknown filter type — ignore silently (defensive).
                 await event.answer(ERROR_GENERIC, alert=True)
