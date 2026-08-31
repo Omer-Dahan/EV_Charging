@@ -35,11 +35,17 @@ import urllib.request
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".env"))
+except ImportError:
+    pass
+
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ev_stations.db")
 BACKUP_DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ev_stations_v1_backup.db")
 PAZ_CACHE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "paz_stations_cache.json")
 
-CELLO_TOKEN = "[REDACTED]"
+CELLO_TOKEN = os.environ.get("CELLO_TOKEN", "")
 CELLO_BASE = "https://api.prod.ev.cellocharge.com/evsfeed/api/v2/portal"
 
 USER_AGENTS = [
@@ -395,6 +401,9 @@ def fetch_cello_data() -> Tuple[Dict[str, Dict[str, Any]], List[Dict[str, Any]]]
       - GET /locations
     """
     print("[1/9] מוריד נתונים מ-CelloCharge API (עמוד השדרה)...")
+    if not CELLO_TOKEN:
+        print("  ⚠️ אזהרה: CELLO_TOKEN לא מוגדר (.env) — מדלג על מקור CelloCharge")
+        return {}, []
     headers = {
         "Authorization": f"Bearer {CELLO_TOKEN}",
         "User-Agent": USER_AGENTS[0],

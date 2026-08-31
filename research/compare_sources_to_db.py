@@ -4,6 +4,7 @@ Comprehensive Comparison & Source Analysis Script:
 Compares current ev_stations.db against live external sources, company APIs, and aggregators.
 """
 
+import os
 import sqlite3
 import urllib.request
 import json
@@ -11,7 +12,7 @@ import re
 from typing import Dict, Any, List
 
 DB_PATH = '/home/vm/projects/ev-charging-bot/data/ev_stations.db'
-CELLO_TOKEN = '[REDACTED]'
+CELLO_TOKEN = os.environ.get('CELLO_TOKEN', '')
 
 def get_db_stats():
     conn = sqlite3.connect(DB_PATH)
