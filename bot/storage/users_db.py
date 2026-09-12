@@ -96,6 +96,27 @@ async def init_users_db(db_path: str) -> None:
                 created_at TEXT DEFAULT (datetime('now'))
             )
         """)
+        # תוכניות נסיעה שהושלמו (Trip Mode) - נשמרות כך שהמשתמש יוכל לפתוח אותן שוב
+        # גם אחרי restart של הבוט. ראה save_trip_plan/get_recent_trip_plans/get_trip_plan.
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS trip_plans (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                chat_id INTEGER NOT NULL,
+                created_at TEXT DEFAULT (datetime('now')),
+                origin_lat REAL,
+                origin_lng REAL,
+                origin_name TEXT,
+                destination_lat REAL,
+                destination_lng REAL,
+                destination_name TEXT,
+                total_distance_km REAL,
+                battery_percent REAL,
+                plan_json TEXT
+            )
+        """)
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_trip_plans_chat_id ON trip_plans (chat_id, created_at DESC)"
+        )
         await db.commit()
 
 
@@ -310,3 +331,103 @@ async def upsert_user(settings: UserSettings, db_path: str) -> None:
             settings.trip_min_power_kw, settings.trip_max_price, allowed_providers_json,
         ))
         await db.commit()
+
+
+async def save_trip_plan(
+    chat_id: int,
+    origin: Dict[str, Any],
+    destination: Dict[str, Any],
+    battery_percent: float,
+    plan: Dict[str, Any],
+    db_path: str,
+) -> Optional[int]:
+    """שומר תוכנית נסיעה שהושלמה, כדי שהמשתמש יוכל לפתוח אותה שוב מ"התוכניות שלי"
+    גם אחרי restart של הבוט (בניגוד לזיכרון ה-session שנמחק בכל הפעלה מחדש)."""
+    if not db_path:
+        return None
+    try:
+        async with aiosqlite.connect(db_path) as db:
+            cursor = await db.execute("""
+                INSERT INTO trip_plans (
+                    chat_id, origin_lat, origin_lng, origin_name,
+                    destination_lat, destination_lng, destination_name,
+                    total_distance_km, battery_percent, plan_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                chat_id, origin["lat"], origin["lng"], origin.get("name"),
+                destination["lat"], destination["lng"], destination.get("name"),
+                plan.get("total_distance_km"), battery_percent, json.dumps(plan),
+            ))
+            await db.commit()
+            return cursor.lastrowid
+    except Exception:
+        logger.exception("Failed to save trip plan for chat_id=%s", chat_id)
+        return None
+
+
+async def get_recent_trip_plans(chat_id: int, db_path: str, limit: int = 5) -> List[Dict[str, Any]]:
+    """שולף את תוכניות הנסיעה השמורות האחרונות של המשתמש, מהחדשה לישנה (בלי plan_json המלא)."""
+    if not db_path:
+        return []
+    try:
+        async with aiosqlite.connect(db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute("""
+                SELECT id, created_at, origin_name, destination_name, total_distance_km, battery_percent
+                FROM trip_plans WHERE chat_id = ?
+                ORDER BY created_at DESC, id DESC LIMIT ?
+            """, (chat_id, limit)) as cursor:
+                rows = await cursor.fetchall()
+                return [dict(row) for row in rows]
+    except Exception:
+        logger.exception("Failed to fetch recent trip plans for chat_id=%s", chat_id)
+        return []
+
+
+async def get_trip_plan(plan_id: int, chat_id: int, db_path: str) -> Optional[Dict[str, Any]]:
+    """שולף תוכנית נסיעה שמורה בודדת, כולל plan_json המלא (מפוענח ל-dict תחת המפתח "plan").
+
+    השאילתה מסוננת גם לפי chat_id כדי שמשתמש לא יוכל לצפות בתוכנית של מישהו אחר
+    ע"י ניחוש מזהה (id) בכפתור callback.
+    """
+    if not db_path:
+        return None
+    try:
+        async with aiosqlite.connect(db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT * FROM trip_plans WHERE id = ? AND chat_id = ?", (plan_id, chat_id)
+            ) as cursor:
+                row = await cursor.fetchone()
+                if row is None:
+                    return None
+                result = dict(row)
+                try:
+                    result["plan"] = json.loads(result["plan_json"])
+                except (json.JSONDecodeError, TypeError):
+                    return None
+                return result
+    except Exception:
+        logger.exception("Failed to fetch trip plan id=%s for chat_id=%s", plan_id, chat_id)
+        return None
+
+
+async def cleanup_old_trip_plans(db_path: str, days: int = 30) -> int:
+    """מוחק תוכניות נסיעה ישנות יותר מ-days ימים (ברירת מחדל 30).
+
+    נקרא פעם אחת בכל עליית בוט (main.py) כדי שהטבלה לא תגדל ללא גבול - לא רץ ברקע
+    ולא דורש תזמון נפרד. תוכניות בנות 10-29 ימים נשארות; רק ה-DB לא גדל ללא סוף.
+    """
+    if not db_path:
+        return 0
+    try:
+        async with aiosqlite.connect(db_path) as db:
+            cursor = await db.execute(
+                "DELETE FROM trip_plans WHERE created_at < datetime('now', ?)",
+                (f"-{days} days",),
+            )
+            await db.commit()
+            return cursor.rowcount
+    except Exception:
+        logger.exception("Failed to cleanup old trip plans")
+        return 0

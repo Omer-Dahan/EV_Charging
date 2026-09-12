@@ -26,6 +26,11 @@ class UserSession:
     trip_destination: Optional[dict] = None
     trip_origin: Optional[dict] = None
     trip_geocode_candidates: list = field(default_factory=list)
+    # מזהה הודעת הזרימה היחידה של מצב הנסיעה - נערכת בכל שלב במקום לשלוח הודעה חדשה.
+    trip_message_id: Optional[int] = None
+    # True כשמקלדת התשובה (ReplyKeyboardMarkup) של בקשת מיקום GPS מוצגת כרגע - חובה
+    # להסיר אותה בהודעה נשלחת (לא ניתן לערוך reply keyboard לתוך הודעה קיימת).
+    trip_reply_keyboard_active: bool = False
     _last_active: float = field(default_factory=time.monotonic)
 
     def touch(self) -> None:

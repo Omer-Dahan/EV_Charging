@@ -159,6 +159,25 @@ def trip_plan_keyboard(stops: list[dict]) -> list:
         Button.inline("🔄 חיפוש חדש", data=b"nav:new_search"),
         Button.inline("⚙️ הגדרות נסיעה", data=b"settings:trip"),
     ])
+    rows.append([Button.inline("🕘 התוכניות שלי", data=b"trip:myplans")])
+    return rows
+
+
+def trip_myplans_keyboard(plans: list[dict]) -> list:
+    """מקלדת רשימת תוכניות הנסיעה השמורות האחרונות של המשתמש (עד 5)."""
+    rows = []
+    for p in plans:
+        date_part = (p.get("created_at") or "")[:10]
+        if len(date_part) == 10 and date_part.count("-") == 2:
+            year, month, day = date_part.split("-")
+            date_part = f"{day}/{month}"
+        dest = p.get("destination_name") or "יעד לא ידוע"
+        label = f"🕘 {dest} ({date_part})"
+        if len(label) > 42:
+            label = label[:39] + "..."
+        rows.append([Button.inline(label, data=f"trip:plan:{p['id']}".encode("utf-8"))])
+    rows.append([Button.inline("🚗 תכנון נסיעה חדשה", data=b"trip:new")])
+    rows.append([Button.inline("↩️ חזרה", data=b"nav:back_to_welcome")])
     return rows
 
 

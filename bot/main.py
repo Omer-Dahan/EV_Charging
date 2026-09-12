@@ -9,7 +9,7 @@ from bot.handlers import start, location, callbacks, admin, trip
 from bot.handlers import settings as settings_handler
 from bot.services import rate_limiter
 from bot.services.bot_health import setup_error_tracker
-from bot.storage.users_db import init_users_db
+from bot.storage.users_db import cleanup_old_trip_plans, init_users_db
 
 
 async def main():
@@ -20,6 +20,15 @@ async def main():
 
     # 2. Initialise users DB and stats tables
     await init_users_db(settings.users_db_path)
+
+    # 2b. Drop trip plans older than 30 days so the table doesn't grow unbounded.
+    #     Run once per startup rather than on a background schedule - cheap DELETE query.
+    try:
+        deleted = await cleanup_old_trip_plans(settings.users_db_path)
+        if deleted:
+            logging.info("Cleaned up %d trip plan(s) older than 30 days", deleted)
+    except Exception:
+        logging.exception("Failed to cleanup old trip plans on startup")
 
     # 3. Derive session file path from the same directory as users.db so the
     #    session is always co-located with its data, regardless of CWD.

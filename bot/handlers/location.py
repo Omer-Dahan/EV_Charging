@@ -398,12 +398,27 @@ def register_handlers(client: TelegramClient) -> None:
 
     @client.on(events.NewMessage(pattern=r"^(?:❌\s*)?ביטול$"))
     async def handle_cancel(event: events.NewMessage.Event) -> None:
-        session = get_session(event.chat_id)
+        chat_id = event.chat_id
+        session = get_session(chat_id)
         if getattr(session, "admin_add_state", None) is not None:
             return
+        had_trip_flow = session.trip_state is not None
+        trip_message_id = session.trip_message_id
         session.trip_state = None
         session.trip_destination = None
         session.trip_origin = None
+        session.trip_reply_keyboard_active = False
+        if had_trip_flow and trip_message_id is not None:
+            # מנטרלים את הכפתורים בהודעת הזרימה שבוטלה, כדי שלא תישאר אינטראקטיבית.
+            try:
+                await event.client.edit_message(chat_id, trip_message_id, buttons=None)
+            except Exception:
+                pass
+            session.trip_message_id = None
+        try:
+            await event.delete()
+        except Exception:
+            pass
         await event.respond(LOCATION_PROMPT_MESSAGE, buttons=Button.clear(), parse_mode="html")
 
     @client.on(events.CallbackQuery(pattern=rb"^loc:request"))
