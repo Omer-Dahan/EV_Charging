@@ -403,6 +403,7 @@ def register_handlers(client: TelegramClient) -> None:
             return
         session.trip_state = None
         session.trip_destination = None
+        session.trip_origin = None
         await event.respond(LOCATION_PROMPT_MESSAGE, buttons=Button.clear(), parse_mode="html")
 
     @client.on(events.CallbackQuery(pattern=rb"^loc:request"))

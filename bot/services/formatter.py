@@ -107,9 +107,27 @@ def format_station_card(
     return "\n".join(lines)
 
 
+def _relaxation_note(relaxation: Optional[dict], min_power_kw: Optional[float]) -> Optional[str]:
+    """בונה הודעת הקלה קריאה כשעצירה נבחרה רק אחרי הרחבת ההעדפות המקוריות."""
+    if not relaxation:
+        return None
+    eased = []
+    if relaxation.get("providers"):
+        eased.append("הורחב לכל המפעילים (לא רק המועדפים)")
+    if relaxation.get("price"):
+        eased.append("הוסרה תקרת המחיר המקסימלי")
+    power_used = relaxation.get("power_kw")
+    if power_used is not None and min_power_kw is not None and power_used < min_power_kw:
+        eased.append(f'הספק מינימלי הורד ל-{power_used:.0f}kW')
+    if not eased:
+        return None
+    return "⚠️ הועדפו הקלות בעצירה זו: " + ", ".join(eased) + "."
+
+
 def format_trip_plan(plan: dict, origin_name: str, dest_name: str) -> str:
     """מעצב כרטיסיית תוכנית נסיעה (מרחק, זמן, עצירות טעינה) מתוך dict של trip_planner.plan_trip."""
     total_km = plan["total_distance_km"]
+    straight_km = plan.get("straight_line_km", total_km)
     hours = plan["duration_hours"]
     h = int(hours)
     m = round((hours - h) * 60)
@@ -117,17 +135,29 @@ def format_trip_plan(plan: dict, origin_name: str, dest_name: str) -> str:
         h += 1
         m = 0
     num_stops = plan["num_stops"]
+    car = plan.get("car_params", {})
+    available_range_km = plan.get("available_range_km")
+    min_power_kw = car.get("min_power_kw")
 
     lines = [
         "🚗 <b>תכנון נסיעה</b>",
         f"📍 <b>מ:</b> {origin_name}",
         f"🏁 <b>אל:</b> {dest_name}",
         "",
-        f'📏 מרחק (קו אווירי): {total_km:.0f} ק"מ',
+        f'📏 מרחק כביש משוער: {total_km:.0f} ק"מ (קו אווירי: {straight_km:.0f} ק"מ)',
         f"⏱️ זמן נסיעה משוער: {h} שע׳ {m} דק׳ (ללא זמני טעינה)",
         f"🔋 עצירות טעינה נדרשות: {num_stops}",
         "",
     ]
+
+    if car:
+        lines.append(
+            f'🚙 <b>פרמטרי הרכב:</b> טווח אמיתי {car["real_range_km"]:.0f} ק"מ, '
+            f'סוללה {car["battery_percent"]:.0f}%, מרווח ביטחון {car["safety_margin_percent"]:.0f}%'
+        )
+        if available_range_km is not None:
+            lines.append(f'📊 טווח זמין לנסיעה (עד המרווח): {available_range_km:.0f} ק"מ')
+        lines.append("")
 
     if num_stops == 0:
         lines.append("✅ טווח הסוללה מספיק להגעה ישירה, ללא עצירת טעינה.")
@@ -145,17 +175,22 @@ def format_trip_plan(plan: dict, origin_name: str, dest_name: str) -> str:
             lines.append(f'🔌 <b>עצירה {idx}</b> — אחרי כ-{dist:.0f} ק"מ:')
             lines.append(f"🏢 {name} ({provider}, {max_power:.0f}kW)")
             lines.append(f"💰 {price_block}")
+            note = _relaxation_note(stop.get("relaxation"), min_power_kw)
+            if note:
+                lines.append(note)
             lines.append("")
 
         for missing in plan.get("missing_segments", []):
             lines.append(
-                f'⚠️ לא נמצאה עמדת טעינה מתאימה בקטע שאחרי כ-{missing["distance_km"]:.0f} ק"מ מהמוצא.'
+                f'⚠️ לא נמצאה עמדת טעינה מתאימה בקטע שאחרי כ-{missing["distance_km"]:.0f} ק"מ מהמוצא, '
+                "גם אחרי הקלת ההעדפות."
             )
         if plan.get("missing_segments"):
             lines.append("")
 
+    consumption = car.get("consumption_kwh_per_100km", 18.0) if car else 18.0
     lines.append(
-        'ℹ️ הנחות: צריכה 18kWh/100 ק"מ, טווח סוללה 400 ק"מ. '
-        "המרחק והזמן מבוססים על קו אווירי ולא מסלול כביש בפועל."
+        f'ℹ️ הנחות: צריכה {consumption:.0f}kWh/100 ק"מ, מרחק הכביש מוערך ב-25% יותר מקו אווירי '
+        "(אין ניתוב מדויק כרגע). ניתן להתאים את פרמטרי הרכב וההעדפות דרך ⚙️ הגדרות נסיעה."
     )
     return "\n".join(lines)

@@ -24,6 +24,7 @@ class UserSession:
     admin_add_data: dict = field(default_factory=dict)
     trip_state: Optional[str] = None
     trip_destination: Optional[dict] = None
+    trip_origin: Optional[dict] = None
     trip_geocode_candidates: list = field(default_factory=list)
     _last_active: float = field(default_factory=time.monotonic)
 

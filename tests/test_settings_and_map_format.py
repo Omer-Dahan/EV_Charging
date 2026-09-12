@@ -105,6 +105,95 @@ class TestMapFormatDB(unittest.IsolatedAsyncioTestCase):
             self.assertIn("Failed to add map_format column", mock_logger_warning.call_args[0][0])
 
 
+class TestTripSettingsDB(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.users_db_path = os.path.join(self.temp_dir.name, "test_users.db")
+        await init_users_db(self.users_db_path)
+
+    async def asyncTearDown(self):
+        self.temp_dir.cleanup()
+
+    async def test_default_trip_settings_for_new_user(self):
+        settings = await get_user_settings(2001, self.users_db_path)
+        self.assertIsNone(settings.trip_real_range_km)
+        self.assertIsNone(settings.trip_battery_percent)
+        self.assertIsNone(settings.trip_safety_margin_percent)
+        self.assertIsNone(settings.trip_consumption_kwh_100km)
+        self.assertIsNone(settings.trip_min_power_kw)
+        self.assertIsNone(settings.trip_max_price)
+        self.assertEqual(settings.trip_allowed_providers, [])
+
+    async def test_upsert_and_retrieve_trip_settings_roundtrip(self):
+        user = UserSettings(
+            chat_id=2002,
+            trip_real_range_km=300.0,
+            trip_battery_percent=75.0,
+            trip_safety_margin_percent=15.0,
+            trip_consumption_kwh_100km=20.0,
+            trip_min_power_kw=100.0,
+            trip_max_price=2.0,
+            trip_allowed_providers=["Tesla", "Ev4u"],
+        )
+        await upsert_user(user, self.users_db_path)
+
+        retrieved = await get_user_settings(2002, self.users_db_path)
+        self.assertEqual(retrieved.trip_real_range_km, 300.0)
+        self.assertEqual(retrieved.trip_battery_percent, 75.0)
+        self.assertEqual(retrieved.trip_safety_margin_percent, 15.0)
+        self.assertEqual(retrieved.trip_consumption_kwh_100km, 20.0)
+        self.assertEqual(retrieved.trip_min_power_kw, 100.0)
+        self.assertEqual(retrieved.trip_max_price, 2.0)
+        self.assertEqual(retrieved.trip_allowed_providers, ["Tesla", "Ev4u"])
+
+    async def test_upsert_with_empty_provider_list_clears_restriction(self):
+        user = UserSettings(chat_id=2003, trip_allowed_providers=["Tesla"])
+        await upsert_user(user, self.users_db_path)
+
+        user.trip_allowed_providers = []
+        await upsert_user(user, self.users_db_path)
+
+        retrieved = await get_user_settings(2003, self.users_db_path)
+        self.assertEqual(retrieved.trip_allowed_providers, [])
+
+    async def test_db_migration_adds_trip_columns_to_existing_db(self):
+        mig_db_path = os.path.join(self.temp_dir.name, "old_users_trip.db")
+        conn = sqlite3.connect(mig_db_path)
+        conn.execute("""
+            CREATE TABLE users (
+                chat_id INTEGER PRIMARY KEY,
+                first_name TEXT,
+                username TEXT,
+                connector_filter TEXT DEFAULT 'ALL',
+                speed_filter TEXT DEFAULT 'ALL',
+                default_radius INTEGER DEFAULT 10,
+                max_price REAL DEFAULT NULL,
+                map_format TEXT DEFAULT 'document',
+                created_at TEXT DEFAULT (datetime('now')),
+                updated_at TEXT DEFAULT (datetime('now'))
+            )
+        """)
+        conn.execute("INSERT INTO users (chat_id, first_name) VALUES (778, 'OldUser')")
+        conn.commit()
+        conn.close()
+
+        await init_users_db(mig_db_path)
+
+        conn = sqlite3.connect(mig_db_path)
+        cursor = conn.execute("PRAGMA table_info(users)")
+        cols = [r[1] for r in cursor.fetchall()]
+        conn.close()
+        for col in (
+            "trip_real_range_km", "trip_battery_percent", "trip_safety_margin_percent",
+            "trip_consumption_kwh_100km", "trip_min_power_kw", "trip_max_price", "trip_allowed_providers",
+        ):
+            self.assertIn(col, cols)
+
+        user_778 = await get_user_settings(778, mig_db_path)
+        self.assertIsNone(user_778.trip_real_range_km)
+        self.assertEqual(user_778.trip_allowed_providers, [])
+
+
 class TestSettingsKeyboardsAndHandlers(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()

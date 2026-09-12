@@ -1,9 +1,22 @@
 import aiosqlite
+import json
 import logging
-from dataclasses import dataclass
-from typing import Optional, Dict, Any
+from dataclasses import dataclass, field
+from typing import List, Optional, Dict, Any
 
 logger = logging.getLogger(__name__)
+
+# עמודות שנוספו לטבלת users אחרי היצירה המקורית - כל אחת מטופלת בנפרד
+# ב-init_users_db כדי לתמוך במיגרציה של DB קיים בלי לאבד נתונים.
+_TRIP_MIGRATION_COLUMNS = (
+    ("trip_real_range_km", "REAL DEFAULT NULL"),
+    ("trip_battery_percent", "REAL DEFAULT NULL"),
+    ("trip_safety_margin_percent", "REAL DEFAULT NULL"),
+    ("trip_consumption_kwh_100km", "REAL DEFAULT NULL"),
+    ("trip_min_power_kw", "REAL DEFAULT NULL"),
+    ("trip_max_price", "REAL DEFAULT NULL"),
+    ("trip_allowed_providers", "TEXT DEFAULT NULL"),
+)
 
 
 @dataclass
@@ -16,6 +29,14 @@ class UserSettings:
     default_radius: int = 10
     max_price: Optional[float] = None
     map_format: str = "document"
+    # הגדרות מצב נסיעה (Trip Mode) - None = השתמש בברירת המחדל שמוגדרת ב-trip_planner.
+    trip_real_range_km: Optional[float] = None
+    trip_battery_percent: Optional[float] = None
+    trip_safety_margin_percent: Optional[float] = None
+    trip_consumption_kwh_100km: Optional[float] = None
+    trip_min_power_kw: Optional[float] = None
+    trip_max_price: Optional[float] = None
+    trip_allowed_providers: List[str] = field(default_factory=list)
 
 
 async def init_users_db(db_path: str) -> None:
@@ -30,6 +51,13 @@ async def init_users_db(db_path: str) -> None:
                 default_radius INTEGER DEFAULT 10,
                 max_price REAL DEFAULT NULL,
                 map_format TEXT DEFAULT 'document',
+                trip_real_range_km REAL DEFAULT NULL,
+                trip_battery_percent REAL DEFAULT NULL,
+                trip_safety_margin_percent REAL DEFAULT NULL,
+                trip_consumption_kwh_100km REAL DEFAULT NULL,
+                trip_min_power_kw REAL DEFAULT NULL,
+                trip_max_price REAL DEFAULT NULL,
+                trip_allowed_providers TEXT DEFAULT NULL,
                 created_at TEXT DEFAULT (datetime('now')),
                 updated_at TEXT DEFAULT (datetime('now'))
             )
@@ -42,6 +70,16 @@ async def init_users_db(db_path: str) -> None:
                 await db.execute("ALTER TABLE users ADD COLUMN map_format TEXT DEFAULT 'document'")
             except Exception as e:
                 logger.warning("Failed to add map_format column during migration: %s", e)
+
+        # Schema migration: add trip-mode personalization columns if missing.
+        cursor = await db.execute("PRAGMA table_info(users)")
+        columns = [row[1] for row in await cursor.fetchall()]
+        for column_name, column_def in _TRIP_MIGRATION_COLUMNS:
+            if column_name not in columns:
+                try:
+                    await db.execute(f"ALTER TABLE users ADD COLUMN {column_name} {column_def}")
+                except Exception as e:
+                    logger.warning("Failed to add %s column during migration: %s", column_name, e)
         await db.execute("""
             CREATE TABLE IF NOT EXISTS search_events (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -205,6 +243,13 @@ async def get_user_settings(chat_id: int, db_path: str) -> UserSettings:
                 map_format = "document"
                 if "map_format" in row.keys() and row["map_format"]:
                     map_format = row["map_format"]
+                row_keys = row.keys()
+                allowed_providers: List[str] = []
+                if "trip_allowed_providers" in row_keys and row["trip_allowed_providers"]:
+                    try:
+                        allowed_providers = json.loads(row["trip_allowed_providers"])
+                    except (json.JSONDecodeError, TypeError):
+                        allowed_providers = []
                 return UserSettings(
                     chat_id=row["chat_id"],
                     first_name=row["first_name"] or "",
@@ -214,16 +259,31 @@ async def get_user_settings(chat_id: int, db_path: str) -> UserSettings:
                     default_radius=row["default_radius"] or 10,
                     max_price=row["max_price"],
                     map_format=map_format,
+                    trip_real_range_km=row["trip_real_range_km"] if "trip_real_range_km" in row_keys else None,
+                    trip_battery_percent=row["trip_battery_percent"] if "trip_battery_percent" in row_keys else None,
+                    trip_safety_margin_percent=(
+                        row["trip_safety_margin_percent"] if "trip_safety_margin_percent" in row_keys else None
+                    ),
+                    trip_consumption_kwh_100km=(
+                        row["trip_consumption_kwh_100km"] if "trip_consumption_kwh_100km" in row_keys else None
+                    ),
+                    trip_min_power_kw=row["trip_min_power_kw"] if "trip_min_power_kw" in row_keys else None,
+                    trip_max_price=row["trip_max_price"] if "trip_max_price" in row_keys else None,
+                    trip_allowed_providers=allowed_providers,
                 )
             return UserSettings(chat_id=chat_id)
 
 
 async def upsert_user(settings: UserSettings, db_path: str) -> None:
+    allowed_providers_json = json.dumps(settings.trip_allowed_providers) if settings.trip_allowed_providers else None
     async with aiosqlite.connect(db_path) as db:
         await db.execute("""
             INSERT INTO users (chat_id, first_name, username,
-                connector_filter, speed_filter, default_radius, max_price, map_format, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                connector_filter, speed_filter, default_radius, max_price, map_format,
+                trip_real_range_km, trip_battery_percent, trip_safety_margin_percent,
+                trip_consumption_kwh_100km, trip_min_power_kw, trip_max_price, trip_allowed_providers,
+                updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
             ON CONFLICT(chat_id) DO UPDATE SET
                 first_name = excluded.first_name,
                 username = excluded.username,
@@ -232,11 +292,21 @@ async def upsert_user(settings: UserSettings, db_path: str) -> None:
                 default_radius = excluded.default_radius,
                 max_price = excluded.max_price,
                 map_format = excluded.map_format,
+                trip_real_range_km = excluded.trip_real_range_km,
+                trip_battery_percent = excluded.trip_battery_percent,
+                trip_safety_margin_percent = excluded.trip_safety_margin_percent,
+                trip_consumption_kwh_100km = excluded.trip_consumption_kwh_100km,
+                trip_min_power_kw = excluded.trip_min_power_kw,
+                trip_max_price = excluded.trip_max_price,
+                trip_allowed_providers = excluded.trip_allowed_providers,
                 updated_at = datetime('now')
         """, (
             settings.chat_id, settings.first_name, settings.username,
             settings.connector_filter, settings.speed_filter,
             settings.default_radius, settings.max_price,
             settings.map_format or "document",
+            settings.trip_real_range_km, settings.trip_battery_percent,
+            settings.trip_safety_margin_percent, settings.trip_consumption_kwh_100km,
+            settings.trip_min_power_kw, settings.trip_max_price, allowed_providers_json,
         ))
         await db.commit()

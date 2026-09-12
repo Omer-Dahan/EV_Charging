@@ -11,6 +11,22 @@ from bot.keyboards.inline import (
     range_keyboard,
     settings_main_keyboard,
     speed_keyboard,
+    trip_battery_keyboard,
+    trip_consumption_keyboard,
+    trip_margin_keyboard,
+    trip_power_keyboard,
+    trip_price_keyboard,
+    trip_providers_keyboard,
+    trip_range_keyboard,
+    trip_settings_main_keyboard,
+)
+from bot.services.station_search import get_distinct_providers
+from bot.services.trip_planner import (
+    TRIP_CONSUMPTION_KWH_PER_100KM,
+    TRIP_DEFAULT_BATTERY_PERCENT,
+    TRIP_DEFAULT_REAL_RANGE_KM,
+    TRIP_DEFAULT_SAFETY_MARGIN_PERCENT,
+    TRIP_PREFERRED_MIN_POWER_KW,
 )
 from bot.storage.users_db import get_user_settings, upsert_user
 
@@ -120,6 +136,125 @@ async def show_map_format(event: events.CallbackQuery.Event) -> None:
     )
 
 
+TRIP_SETTINGS_TEMPLATE = (
+    "🚗 <b>הגדרות מצב נסיעה</b>\n\n"
+    '🔋 <b>טווח רכב אמיתי:</b> {range_km:.0f} ק"מ\n'
+    "🔌 <b>אחוז סוללה בהתחלה:</b> {battery_display}\n"
+    "🛡️ <b>מרווח ביטחון:</b> {margin:.0f}%\n"
+    "🔢 <b>צריכת חשמל:</b> {consumption:.0f} kWh/100 ק\"מ\n"
+    "⚡ <b>הספק מינימלי מועדף:</b> {power:.0f}kW\n"
+    "💰 <b>מחיר מקסימלי לטעינה:</b> {price_display}\n"
+    "🏭 <b>מפעילים מועדפים:</b> {providers_display}\n\n"
+    "בחר הגדרה לשינוי:"
+)
+
+
+def _trip_battery_display(value) -> str:
+    return "ישאל בכל תכנון" if value is None else f"{value:.0f}%"
+
+
+def _trip_providers_display(providers: list) -> str:
+    if not providers:
+        return "הכל (ללא הגבלה)"
+    shown = ", ".join(providers[:3])
+    if len(providers) > 3:
+        shown += f" ועוד {len(providers) - 3}"
+    return shown
+
+
+async def _render_trip_main_text(chat_id: int) -> str:
+    user_settings = await get_user_settings(chat_id, app_settings.users_db_path)
+    return TRIP_SETTINGS_TEMPLATE.format(
+        range_km=user_settings.trip_real_range_km or TRIP_DEFAULT_REAL_RANGE_KM,
+        battery_display=_trip_battery_display(user_settings.trip_battery_percent),
+        margin=user_settings.trip_safety_margin_percent or TRIP_DEFAULT_SAFETY_MARGIN_PERCENT,
+        consumption=user_settings.trip_consumption_kwh_100km or TRIP_CONSUMPTION_KWH_PER_100KM,
+        power=user_settings.trip_min_power_kw or TRIP_PREFERRED_MIN_POWER_KW,
+        price_display=PRICE_DISPLAY.get(user_settings.trip_max_price, "ללא הגבלה"),
+        providers_display=_trip_providers_display(user_settings.trip_allowed_providers),
+    )
+
+
+async def show_trip_main(event: events.CallbackQuery.Event) -> None:
+    chat_id = event.chat_id
+    text = await _render_trip_main_text(chat_id)
+    await event.edit(text, buttons=trip_settings_main_keyboard(), parse_mode="html")
+
+
+async def show_trip_range(event: events.CallbackQuery.Event) -> None:
+    user_settings = await get_user_settings(event.chat_id, app_settings.users_db_path)
+    await event.edit(
+        '🔋 בחר טווח נסיעה אמיתי של הרכב (לא הטווח המוצהר):',
+        buttons=trip_range_keyboard(user_settings.trip_real_range_km or TRIP_DEFAULT_REAL_RANGE_KM),
+    )
+
+
+async def show_trip_battery(event: events.CallbackQuery.Event) -> None:
+    user_settings = await get_user_settings(event.chat_id, app_settings.users_db_path)
+    await event.edit(
+        "🔌 בחר אחוז סוללה שישמש כברירת מחדל בתחילת כל נסיעה:\n\n"
+        'ניתן גם לבחור "ישאל בכל תכנון" כדי להזין אחוז בכל פעם בנפרד.',
+        buttons=trip_battery_keyboard(user_settings.trip_battery_percent),
+        parse_mode="html",
+    )
+
+
+async def show_trip_margin(event: events.CallbackQuery.Event) -> None:
+    user_settings = await get_user_settings(event.chat_id, app_settings.users_db_path)
+    await event.edit(
+        "🛡️ בחר מרווח ביטחון (אחוז סוללה שיישאר בהגעה, גם לעמדת טעינה וגם ליעד הסופי):",
+        buttons=trip_margin_keyboard(user_settings.trip_safety_margin_percent or TRIP_DEFAULT_SAFETY_MARGIN_PERCENT),
+    )
+
+
+async def show_trip_consumption(event: events.CallbackQuery.Event) -> None:
+    user_settings = await get_user_settings(event.chat_id, app_settings.users_db_path)
+    await event.edit(
+        '🔢 בחר צריכת חשמל משוערת (kWh ל-100 ק"מ):',
+        buttons=trip_consumption_keyboard(user_settings.trip_consumption_kwh_100km),
+    )
+
+
+async def show_trip_power(event: events.CallbackQuery.Event) -> None:
+    user_settings = await get_user_settings(event.chat_id, app_settings.users_db_path)
+    await event.edit(
+        "⚡ בחר הספק טעינה מינימלי מועדף לעצירות בדרך:",
+        buttons=trip_power_keyboard(user_settings.trip_min_power_kw or TRIP_PREFERRED_MIN_POWER_KW),
+    )
+
+
+async def show_trip_price(event: events.CallbackQuery.Event) -> None:
+    user_settings = await get_user_settings(event.chat_id, app_settings.users_db_path)
+    await event.edit(
+        '💰 בחר מחיר מקסימלי לקוט"ש לעצירות טעינה בדרך:',
+        buttons=trip_price_keyboard(user_settings.trip_max_price),
+    )
+
+
+async def show_trip_providers(event: events.CallbackQuery.Event) -> None:
+    chat_id = event.chat_id
+    user_settings = await get_user_settings(chat_id, app_settings.users_db_path)
+    all_providers = await get_distinct_providers(app_settings.db_path)
+    await event.edit(
+        "🏭 בחר מפעילים מועדפים (בחירה מרובה). ללא בחירה - כל המפעילים מותרים:",
+        buttons=trip_providers_keyboard(all_providers, user_settings.trip_allowed_providers),
+    )
+
+
+async def _save_and_return_to_trip(event: events.CallbackQuery.Event, **field) -> None:
+    chat_id = event.chat_id
+    user_settings = await get_user_settings(chat_id, app_settings.users_db_path)
+    sender = await event.get_sender()
+    user_settings.first_name = getattr(sender, "first_name", "") or ""
+    user_settings.username = getattr(sender, "username", "") or ""
+    for key, value in field.items():
+        setattr(user_settings, key, value)
+    await upsert_user(user_settings, app_settings.users_db_path)
+    await event.answer(SAVED_TOAST, alert=False)
+    text = await _render_trip_main_text(chat_id)
+    await event.edit(text, buttons=trip_settings_main_keyboard(), parse_mode="html")
+
+
 async def _save_and_return(event: events.CallbackQuery.Event, **field) -> None:
     chat_id = event.chat_id
     user_settings = await get_user_settings(chat_id, app_settings.users_db_path)
@@ -157,6 +292,22 @@ def register_handlers(client: TelegramClient) -> None:
                     await event.answer(ERROR_GENERIC, alert=True)
                     return
                 await _save_and_return(event, map_format=fmt_val)
+            elif data == "settings:trip":
+                await show_trip_main(event)
+            elif data == "settings:trip:range":
+                await show_trip_range(event)
+            elif data == "settings:trip:battery":
+                await show_trip_battery(event)
+            elif data == "settings:trip:margin":
+                await show_trip_margin(event)
+            elif data == "settings:trip:consumption":
+                await show_trip_consumption(event)
+            elif data == "settings:trip:power":
+                await show_trip_power(event)
+            elif data == "settings:trip:price":
+                await show_trip_price(event)
+            elif data == "settings:trip:providers":
+                await show_trip_providers(event)
         except Exception:
             logger.exception("error handling settings callback for chat_id=%s", event.chat_id)
             await event.answer(ERROR_GENERIC, alert=True)
@@ -210,6 +361,114 @@ def register_handlers(client: TelegramClient) -> None:
                     await event.answer(ERROR_GENERIC, alert=True)
                     return
                 await _save_and_return(event, map_format=value)
+            elif filter_type == "triprange":
+                try:
+                    range_km = float(value)
+                except ValueError:
+                    await event.answer(ERROR_GENERIC, alert=True)
+                    return
+                if not (100.0 <= range_km <= 800.0):
+                    await event.answer(ERROR_GENERIC, alert=True)
+                    return
+                await _save_and_return_to_trip(event, trip_real_range_km=range_km)
+            elif filter_type == "tripbattery":
+                if value == "ASK":
+                    battery_percent = None
+                else:
+                    try:
+                        battery_percent = float(value)
+                    except ValueError:
+                        await event.answer(ERROR_GENERIC, alert=True)
+                        return
+                    if not (1.0 <= battery_percent <= 100.0):
+                        await event.answer(ERROR_GENERIC, alert=True)
+                        return
+                await _save_and_return_to_trip(event, trip_battery_percent=battery_percent)
+            elif filter_type == "tripmargin":
+                try:
+                    margin = float(value)
+                except ValueError:
+                    await event.answer(ERROR_GENERIC, alert=True)
+                    return
+                if not (0.0 <= margin <= 50.0):
+                    await event.answer(ERROR_GENERIC, alert=True)
+                    return
+                await _save_and_return_to_trip(event, trip_safety_margin_percent=margin)
+            elif filter_type == "tripconsumption":
+                if value == "DEFAULT":
+                    consumption = None
+                else:
+                    try:
+                        consumption = float(value)
+                    except ValueError:
+                        await event.answer(ERROR_GENERIC, alert=True)
+                        return
+                    if not (5.0 <= consumption <= 50.0):
+                        await event.answer(ERROR_GENERIC, alert=True)
+                        return
+                await _save_and_return_to_trip(event, trip_consumption_kwh_100km=consumption)
+            elif filter_type == "trippower":
+                try:
+                    power_kw = float(value)
+                except ValueError:
+                    await event.answer(ERROR_GENERIC, alert=True)
+                    return
+                if not (1.0 <= power_kw <= 400.0):
+                    await event.answer(ERROR_GENERIC, alert=True)
+                    return
+                await _save_and_return_to_trip(event, trip_min_power_kw=power_kw)
+            elif filter_type == "tripprice":
+                if value == "NONE":
+                    trip_max_price = None
+                else:
+                    try:
+                        trip_max_price = float(value)
+                    except ValueError:
+                        await event.answer(ERROR_GENERIC, alert=True)
+                        return
+                    if trip_max_price < 0:
+                        await event.answer(ERROR_GENERIC, alert=True)
+                        return
+                await _save_and_return_to_trip(event, trip_max_price=trip_max_price)
+            elif filter_type == "tripprov":
+                try:
+                    idx = int(value)
+                except ValueError:
+                    await event.answer(ERROR_GENERIC, alert=True)
+                    return
+                all_providers = await get_distinct_providers(app_settings.db_path)
+                if not (0 <= idx < len(all_providers)):
+                    await event.answer(ERROR_GENERIC, alert=True)
+                    return
+                provider = all_providers[idx]
+                chat_id = event.chat_id
+                user_settings = await get_user_settings(chat_id, app_settings.users_db_path)
+                selected = list(user_settings.trip_allowed_providers)
+                if provider in selected:
+                    selected.remove(provider)
+                else:
+                    selected.append(provider)
+                sender = await event.get_sender()
+                user_settings.first_name = getattr(sender, "first_name", "") or ""
+                user_settings.username = getattr(sender, "username", "") or ""
+                user_settings.trip_allowed_providers = selected
+                await upsert_user(user_settings, app_settings.users_db_path)
+                await event.answer(SAVED_TOAST, alert=False)
+                await event.edit(
+                    "🏭 בחר מפעילים מועדפים (בחירה מרובה). ללא בחירה - כל המפעילים מותרים:",
+                    buttons=trip_providers_keyboard(all_providers, selected),
+                )
+            elif filter_type == "tripprovreset":
+                chat_id = event.chat_id
+                user_settings = await get_user_settings(chat_id, app_settings.users_db_path)
+                user_settings.trip_allowed_providers = []
+                await upsert_user(user_settings, app_settings.users_db_path)
+                await event.answer(SAVED_TOAST, alert=False)
+                all_providers = await get_distinct_providers(app_settings.db_path)
+                await event.edit(
+                    "🏭 בחר מפעילים מועדפים (בחירה מרובה). ללא בחירה - כל המפעילים מותרים:",
+                    buttons=trip_providers_keyboard(all_providers, []),
+                )
             else:
                 # Unknown filter type — ignore silently (defensive).
                 await event.answer(ERROR_GENERIC, alert=True)

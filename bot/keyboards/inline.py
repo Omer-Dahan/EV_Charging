@@ -1,3 +1,4 @@
+from typing import Optional
 from urllib.parse import urlencode
 
 from telethon.tl.custom import Button
@@ -137,6 +138,14 @@ def trip_geocode_selection_keyboard(candidates: list[dict]) -> list:
     return rows
 
 
+def trip_battery_choice_keyboard(default_percent: float) -> list:
+    """מקלדת לבחירת אחוז סוללה בתחילת תכנון נסיעה, כשקיימת ברירת מחדל אישית שמורה."""
+    return [
+        [Button.inline(f"🔋 המשך עם {default_percent:.0f}% (ברירת מחדל)", data=b"tripbatt:default")],
+        [Button.inline("✏️ הזן אחוז אחר לנסיעה זו", data=b"tripbatt:custom")],
+    ]
+
+
 def trip_plan_keyboard(stops: list[dict]) -> list:
     """מקלדת עם כפתור ניווט ב-Waze לכל עצירת טעינה בתוכנית הנסיעה."""
     rows = []
@@ -146,7 +155,10 @@ def trip_plan_keyboard(stops: list[dict]) -> list:
         idx = stop["segment_index"]
         waze_url = f"https://waze.com/ul?ll={lat},{lng}&navigate=yes"
         rows.append([Button.url(f"🚗 ניווט לעצירה {idx}", url=waze_url)])
-    rows.append([Button.inline("🔄 חיפוש חדש", data=b"nav:new_search")])
+    rows.append([
+        Button.inline("🔄 חיפוש חדש", data=b"nav:new_search"),
+        Button.inline("⚙️ הגדרות נסיעה", data=b"settings:trip"),
+    ])
     return rows
 
 
@@ -164,9 +176,179 @@ def settings_main_keyboard() -> list:
             Button.inline("🗺️ מפה: קובץ / תמונה", data=b"settings:mapfmt"),
         ],
         [
+            Button.inline("🚗 הגדרות נסיעה", data=b"settings:trip"),
+        ],
+        [
             Button.inline("↩️ חזרה לתוצאות", data=b"nav:back_to_results"),
         ],
     ]
+
+
+def trip_settings_main_keyboard() -> list:
+    return [
+        [
+            Button.inline("🔋 טווח רכב אמיתי", data=b"settings:trip:range"),
+            Button.inline("🔌 אחוז סוללה", data=b"settings:trip:battery"),
+        ],
+        [
+            Button.inline("🛡️ מרווח ביטחון", data=b"settings:trip:margin"),
+            Button.inline("🔢 צריכת חשמל", data=b"settings:trip:consumption"),
+        ],
+        [
+            Button.inline("⚡ הספק מינימלי", data=b"settings:trip:power"),
+            Button.inline("💰 מחיר מקסימלי", data=b"settings:trip:price"),
+        ],
+        [
+            Button.inline("🏭 מפעילים מועדפים", data=b"settings:trip:providers"),
+        ],
+        [
+            Button.inline("↩️ חזרה", data=b"settings:main"),
+        ],
+    ]
+
+
+def trip_range_keyboard(current: float) -> list:
+    def mark(val: float, label: str) -> str:
+        return f"✅ {label}" if current == val else label
+
+    return [
+        [
+            Button.inline(mark(250.0, '250 ק"מ'), data=b"filter:triprange:250"),
+            Button.inline(mark(300.0, '300 ק"מ'), data=b"filter:triprange:300"),
+            Button.inline(mark(350.0, '350 ק"מ'), data=b"filter:triprange:350"),
+        ],
+        [
+            Button.inline(mark(400.0, '400 ק"מ'), data=b"filter:triprange:400"),
+            Button.inline(mark(450.0, '450 ק"מ'), data=b"filter:triprange:450"),
+            Button.inline(mark(500.0, '500 ק"מ'), data=b"filter:triprange:500"),
+        ],
+        [
+            Button.inline("↩️ חזרה", data=b"settings:trip"),
+        ],
+    ]
+
+
+def trip_battery_keyboard(current: Optional[float]) -> list:
+    def mark(val: Optional[float], label: str) -> str:
+        return f"✅ {label}" if current == val else label
+
+    return [
+        [
+            Button.inline(mark(60.0, "60%"), data=b"filter:tripbattery:60"),
+            Button.inline(mark(70.0, "70%"), data=b"filter:tripbattery:70"),
+            Button.inline(mark(80.0, "80%"), data=b"filter:tripbattery:80"),
+        ],
+        [
+            Button.inline(mark(90.0, "90%"), data=b"filter:tripbattery:90"),
+            Button.inline(mark(100.0, "100%"), data=b"filter:tripbattery:100"),
+        ],
+        [
+            Button.inline(mark(None, "🔄 ישאל בכל תכנון"), data=b"filter:tripbattery:ASK"),
+        ],
+        [
+            Button.inline("↩️ חזרה", data=b"settings:trip"),
+        ],
+    ]
+
+
+def trip_margin_keyboard(current: float) -> list:
+    def mark(val: float, label: str) -> str:
+        return f"✅ {label}" if current == val else label
+
+    return [
+        [
+            Button.inline(mark(5.0, "5%"), data=b"filter:tripmargin:5"),
+            Button.inline(mark(10.0, "10%"), data=b"filter:tripmargin:10"),
+            Button.inline(mark(15.0, "15%"), data=b"filter:tripmargin:15"),
+        ],
+        [
+            Button.inline(mark(20.0, "20%"), data=b"filter:tripmargin:20"),
+            Button.inline(mark(25.0, "25%"), data=b"filter:tripmargin:25"),
+        ],
+        [
+            Button.inline("↩️ חזרה", data=b"settings:trip"),
+        ],
+    ]
+
+
+def trip_consumption_keyboard(current: Optional[float]) -> list:
+    def mark(val: Optional[float], label: str) -> str:
+        return f"✅ {label}" if current == val else label
+
+    return [
+        [
+            Button.inline(mark(14.0, "14"), data=b"filter:tripconsumption:14"),
+            Button.inline(mark(16.0, "16"), data=b"filter:tripconsumption:16"),
+            Button.inline(mark(18.0, "18"), data=b"filter:tripconsumption:18"),
+        ],
+        [
+            Button.inline(mark(20.0, "20"), data=b"filter:tripconsumption:20"),
+            Button.inline(mark(22.0, "22"), data=b"filter:tripconsumption:22"),
+        ],
+        [
+            Button.inline(mark(None, "🔄 ברירת מחדל (18)"), data=b"filter:tripconsumption:DEFAULT"),
+        ],
+        [
+            Button.inline("↩️ חזרה", data=b"settings:trip"),
+        ],
+    ]
+
+
+def trip_power_keyboard(current: Optional[float]) -> list:
+    def mark(val: Optional[float], label: str) -> str:
+        return f"✅ {label}" if current == val else label
+
+    return [
+        [
+            Button.inline(mark(50.0, "50kW"), data=b"filter:trippower:50"),
+            Button.inline(mark(100.0, "100kW"), data=b"filter:trippower:100"),
+        ],
+        [
+            Button.inline(mark(150.0, "150kW"), data=b"filter:trippower:150"),
+            Button.inline(mark(200.0, "200kW"), data=b"filter:trippower:200"),
+        ],
+        [
+            Button.inline("↩️ חזרה", data=b"settings:trip"),
+        ],
+    ]
+
+
+def trip_price_keyboard(current) -> list:
+    def mark(val, label: str) -> str:
+        return f"✅ {label}" if current == val else label
+
+    return [
+        [
+            Button.inline(mark(None, "ללא הגבלה"), data=b"filter:tripprice:NONE"),
+            Button.inline(mark(1.5, "עד 1.50 ₪"), data=b"filter:tripprice:1.5"),
+        ],
+        [
+            Button.inline(mark(2.0, "עד 2.00 ₪"), data=b"filter:tripprice:2.0"),
+            Button.inline(mark(2.5, "עד 2.50 ₪"), data=b"filter:tripprice:2.5"),
+        ],
+        [
+            Button.inline("↩️ חזרה", data=b"settings:trip"),
+        ],
+    ]
+
+
+def trip_providers_keyboard(all_providers: list[str], selected: list[str]) -> list:
+    """מקלדת בחירה מרובה של מפעילים מועדפים למצב נסיעה, לפי אינדקס ברשימה הממוינת מה-DB."""
+    rows = []
+    row: list = []
+    for i, provider in enumerate(all_providers):
+        label = f"✅ {provider}" if provider in selected else provider
+        if len(label) > 28:
+            label = label[:25] + "..."
+        row.append(Button.inline(label, data=f"filter:tripprov:{i}".encode("utf-8")))
+        if len(row) == 2:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    rows.append([Button.inline("🔄 איפוס (הכל)", data=b"filter:tripprovreset:1")])
+    rows.append([Button.inline("↩️ חזרה", data=b"settings:trip")])
+    return rows
 
 
 def connector_keyboard(current: str) -> list:

@@ -268,6 +268,21 @@ def _find_nearby_sync(
     return selected
 
 
+def _get_distinct_providers_sync(db_path: str) -> list[str]:
+    with sqlite3.connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT provider_name FROM locations "
+            "WHERE provider_name IS NOT NULL AND provider_name != '' "
+            "ORDER BY provider_name COLLATE NOCASE"
+        ).fetchall()
+    return [row[0] for row in rows]
+
+
+async def get_distinct_providers(db_path: str) -> list[str]:
+    """רשימת שמות מפעילים ייחודיים ב-DB, למסך בחירת מפעילים מועדפים במצב נסיעה."""
+    return await asyncio.to_thread(_get_distinct_providers_sync, db_path)
+
+
 async def find_nearby(
     db_path: str,
     user_lat: float,
