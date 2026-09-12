@@ -5,7 +5,7 @@ import os
 from telethon import TelegramClient
 
 from bot.config import settings
-from bot.handlers import start, location, callbacks, admin
+from bot.handlers import start, location, callbacks, admin, trip
 from bot.handlers import settings as settings_handler
 from bot.services import rate_limiter
 from bot.services.bot_health import setup_error_tracker
@@ -34,6 +34,7 @@ async def main():
     # 6. Register handlers
     start.register_handlers(client)
     location.register_handlers(client)
+    trip.register_handlers(client)
     settings_handler.register_handlers(client)
     callbacks.register_handlers(client)
     admin.register_handlers(client)

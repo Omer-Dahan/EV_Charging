@@ -139,6 +139,7 @@ async def send_map_image(
     radius_km: int,
     results: list[dict],
     map_format: Optional[str] = None,
+    caption: str = MAP_CAPTION,
 ) -> None:
     """שולח תמונת מפה בנפרד מכרטיסיית העמדה. כשלון כאן (רשת, שגיאת רינדור וכו')
     לא אמור לחסום את החיפוש - לכן נבלע ונרשם ללוג בלבד."""
@@ -157,7 +158,7 @@ async def send_map_image(
             force_doc = (map_format != "photo")
             await event.respond(
                 file=map_path,
-                message=MAP_CAPTION,
+                message=caption,
                 force_document=force_doc,
             )
         finally:
@@ -239,6 +240,8 @@ def _is_text_search(e: events.NewMessage.Event) -> bool:
         session = get_session(chat_id)
         if getattr(session, "admin_add_state", None) is not None:
             return False
+        if getattr(session, "trip_state", None) is not None:
+            return False
     if bool(e.geo):
         return False
     text = (e.text or "").strip()
@@ -255,6 +258,8 @@ def register_handlers(client: TelegramClient) -> None:
         chat_id = event.chat_id
         session = get_session(chat_id)
         if getattr(session, "admin_add_state", None) is not None:
+            return
+        if getattr(session, "trip_state", None) is not None:
             return
         try:
             sender = await event.get_sender()
@@ -396,6 +401,8 @@ def register_handlers(client: TelegramClient) -> None:
         session = get_session(event.chat_id)
         if getattr(session, "admin_add_state", None) is not None:
             return
+        session.trip_state = None
+        session.trip_destination = None
         await event.respond(LOCATION_PROMPT_MESSAGE, buttons=Button.clear(), parse_mode="html")
 
     @client.on(events.CallbackQuery(pattern=rb"^loc:request"))

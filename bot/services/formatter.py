@@ -1,6 +1,8 @@
 import json
 from typing import Optional
 
+from bot.services.station_search import get_station_max_power
+
 CONNECTOR_DISPLAY = {
     "CCS2_COMBO": "⚡ CCS2 (DC)",
     "TYPE2": "🔌 Type 2 (AC)",
@@ -102,4 +104,58 @@ def format_station_card(
     if gov_badge:
         lines.append("")
         lines.append(gov_badge)
+    return "\n".join(lines)
+
+
+def format_trip_plan(plan: dict, origin_name: str, dest_name: str) -> str:
+    """מעצב כרטיסיית תוכנית נסיעה (מרחק, זמן, עצירות טעינה) מתוך dict של trip_planner.plan_trip."""
+    total_km = plan["total_distance_km"]
+    hours = plan["duration_hours"]
+    h = int(hours)
+    m = round((hours - h) * 60)
+    if m == 60:
+        h += 1
+        m = 0
+    num_stops = plan["num_stops"]
+
+    lines = [
+        "🚗 <b>תכנון נסיעה</b>",
+        f"📍 <b>מ:</b> {origin_name}",
+        f"🏁 <b>אל:</b> {dest_name}",
+        "",
+        f'📏 מרחק (קו אווירי): {total_km:.0f} ק"מ',
+        f"⏱️ זמן נסיעה משוער: {h} שע׳ {m} דק׳ (ללא זמני טעינה)",
+        f"🔋 עצירות טעינה נדרשות: {num_stops}",
+        "",
+    ]
+
+    if num_stops == 0:
+        lines.append("✅ טווח הסוללה מספיק להגעה ישירה, ללא עצירת טעינה.")
+    else:
+        for stop in plan["stops"]:
+            station = stop["station"]
+            idx = stop["segment_index"]
+            dist = stop["distance_from_origin_km"]
+            name = station.get("name") or "עמדת טעינה"
+            provider = station.get("provider_name") or "לא צוין"
+            max_power = station.get("max_power")
+            if max_power is None:
+                max_power = get_station_max_power(station.get("connectors"))
+            price_block = _price_block(station.get("max_per_kwh"))
+            lines.append(f'🔌 <b>עצירה {idx}</b> — אחרי כ-{dist:.0f} ק"מ:')
+            lines.append(f"🏢 {name} ({provider}, {max_power:.0f}kW)")
+            lines.append(f"💰 {price_block}")
+            lines.append("")
+
+        for missing in plan.get("missing_segments", []):
+            lines.append(
+                f'⚠️ לא נמצאה עמדת טעינה מתאימה בקטע שאחרי כ-{missing["distance_km"]:.0f} ק"מ מהמוצא.'
+            )
+        if plan.get("missing_segments"):
+            lines.append("")
+
+    lines.append(
+        'ℹ️ הנחות: צריכה 18kWh/100 ק"מ, טווח סוללה 400 ק"מ. '
+        "המרחק והזמן מבוססים על קו אווירי ולא מסלול כביש בפועל."
+    )
     return "\n".join(lines)

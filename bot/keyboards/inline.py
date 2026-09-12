@@ -121,6 +121,35 @@ def geocode_selection_keyboard(candidates: list[dict]) -> list:
     return rows
 
 
+def trip_geocode_selection_keyboard(candidates: list[dict]) -> list:
+    """מקלדת בחירה כאשר נמצאו מספר תוצאות עבור יעד/מוצא במצב נסיעה (Trip Mode)."""
+    rows = []
+    for i, item in enumerate(candidates):
+        lat = item["lat"]
+        lng = item["lng"]
+        name = item["name"]
+        btn_text = f"📍 {name}"
+        if len(btn_text) > 42:
+            btn_text = btn_text[:39] + "..."
+        data = f"tripgeo:{i}:{lat:.5f}:{lng:.5f}".encode("utf-8")
+        rows.append([Button.inline(btn_text, data=data)])
+    rows.append([Button.inline("❌ ביטול", data=b"nav:new_search")])
+    return rows
+
+
+def trip_plan_keyboard(stops: list[dict]) -> list:
+    """מקלדת עם כפתור ניווט ב-Waze לכל עצירת טעינה בתוכנית הנסיעה."""
+    rows = []
+    for stop in stops:
+        station = stop["station"]
+        lat, lng = station["lat"], station["lng"]
+        idx = stop["segment_index"]
+        waze_url = f"https://waze.com/ul?ll={lat},{lng}&navigate=yes"
+        rows.append([Button.url(f"🚗 ניווט לעצירה {idx}", url=waze_url)])
+    rows.append([Button.inline("🔄 חיפוש חדש", data=b"nav:new_search")])
+    return rows
+
+
 def settings_main_keyboard() -> list:
     return [
         [
