@@ -2,6 +2,7 @@ import json
 from typing import Optional
 
 from bot.services.station_search import get_station_max_power
+from bot.services.trip_planner import TRIP_ROAD_DISTANCE_FACTOR
 
 CONNECTOR_DISPLAY = {
     "CCS2_COMBO": "⚡ CCS2 (DC)",
@@ -141,6 +142,7 @@ def format_trip_plan(plan: dict, origin_name: str, dest_name: str) -> str:
     num_stops = plan["num_stops"]
     car = plan.get("car_params", {})
     available_range_km = plan.get("available_range_km")
+    recharged_range_km = plan.get("recharged_range_km")
     min_power_kw = car.get("min_power_kw")
 
     lines = [
@@ -160,7 +162,12 @@ def format_trip_plan(plan: dict, origin_name: str, dest_name: str) -> str:
             f'סוללה {car["battery_percent"]:.0f}%, מרווח ביטחון {car["safety_margin_percent"]:.0f}%'
         )
         if available_range_km is not None:
-            lines.append(f'📊 טווח זמין לנסיעה (עד המרווח): {available_range_km:.0f} ק"מ')
+            lines.append(f'📊 טווח עד העצירה הראשונה: {available_range_km:.0f} ק"מ')
+        if recharged_range_km is not None:
+            lines.append(
+                f'🔌 טווח אחרי טעינה ל-{car.get("recharge_target_percent", 100.0):.0f}%: '
+                f'{recharged_range_km:.0f} ק"מ'
+            )
         lines.append("")
 
     if num_stops == 0:
@@ -178,6 +185,12 @@ def format_trip_plan(plan: dict, origin_name: str, dest_name: str) -> str:
             price_block = _price_block(station.get("max_per_kwh"))
             lines.append(f'🔌 <b>עצירה {idx}</b> — אחרי כ-{dist:.0f} ק"מ:')
             lines.append(f"🏢 {name} ({provider}, {max_power:.0f}kW)")
+            arrival = stop.get("battery_arrival_percent")
+            departure = stop.get("battery_departure_percent")
+            if arrival is not None and departure is not None:
+                leg_km = stop.get("leg_distance_km")
+                leg_note = f' (רגל של {leg_km:.0f} ק"מ)' if leg_km is not None else ""
+                lines.append(f"🔋 מגיע עם {arrival:.0f}% · טען ל-{departure:.0f}%{leg_note}")
             lines.append(f"💰 {price_block}")
             note = _relaxation_note(stop.get("relaxation"), min_power_kw)
             if note:
@@ -192,9 +205,21 @@ def format_trip_plan(plan: dict, origin_name: str, dest_name: str) -> str:
         if plan.get("missing_segments"):
             lines.append("")
 
+    arrival_percent = plan.get("arrival_battery_percent")
+    if arrival_percent is not None:
+        lines.append(f"🏁 צפי הגעה ליעד עם כ-{arrival_percent:.0f}% סוללה.")
+        lines.append("")
+
     consumption = car.get("consumption_kwh_per_100km", 18.0) if car else 18.0
+    if plan.get("route_source") == "osrm":
+        route_note = "מרחק וזמן לפי ניתוב אמיתי בכבישים"
+    else:
+        route_note = (
+            f"שירות הניתוב לא היה זמין, ולכן מרחק הכביש מוערך ב-"
+            f"{(TRIP_ROAD_DISTANCE_FACTOR - 1) * 100:.0f}% יותר מקו אווירי"
+        )
     lines.append(
-        f'ℹ️ הנחות: צריכה {consumption:.0f}kWh/100 ק"מ, מרחק הכביש מוערך ב-25% יותר מקו אווירי '
-        "(אין ניתוב מדויק כרגע). ניתן להתאים את פרמטרי הרכב וההעדפות דרך ⚙️ הגדרות נסיעה."
+        f'ℹ️ הנחות: צריכה {consumption:.0f}kWh/100 ק"מ, {route_note}. '
+        "ניתן להתאים את פרמטרי הרכב וההעדפות דרך ⚙️ הגדרות נסיעה."
     )
     return "\n".join(lines)

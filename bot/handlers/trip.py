@@ -19,6 +19,7 @@ from bot.services.trip_planner import (
     TRIP_CONSUMPTION_KWH_PER_100KM,
     TRIP_DEFAULT_REAL_RANGE_KM,
     TRIP_DEFAULT_SAFETY_MARGIN_PERCENT,
+    TripRangeError,
     plan_trip,
 )
 from bot.states import get_session
@@ -304,6 +305,16 @@ async def _finalize_trip(
             max_price=user_settings.trip_max_price,
             allowed_providers=user_settings.trip_allowed_providers or None,
         )
+    except TripRangeError:
+        # רשת ביטחון: אותו מצב שהבדיקה למעלה חוסמת, אבל אם הגדרות המשתמש השתנו
+        # בינתיים עדיף להחזיר אותו למסך הסוללה מאשר ל"שגיאה כללית".
+        logger.info("trip planning blocked by range for chat_id=%s", chat_id)
+        session.trip_state = "awaiting_battery"
+        await _show_trip_step(
+            event, chat_id, session,
+            *screens.render_low_battery(battery_percent, safety_margin_percent),
+        )
+        return
     except Exception:
         logger.exception("error planning trip for chat_id=%s", chat_id)
         session.trip_state = None

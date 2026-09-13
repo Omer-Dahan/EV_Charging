@@ -183,6 +183,15 @@ def render_plans_list(plans: list[dict]) -> tuple[str, list]:
     return text, trip_myplans_keyboard(plans)
 
 
+def _battery_line(stop: dict) -> Optional[str]:
+    """מה שהמשתמש באמת רוצה לדעת בכל עצירה: באיזה מצב הוא מגיע ולאן הוא טוען."""
+    arrival = stop.get("battery_arrival_percent")
+    departure = stop.get("battery_departure_percent")
+    if arrival is None or departure is None:
+        return None
+    return f"     🔋 מגיע עם {arrival:.0f}% · טען ל-{departure:.0f}%"
+
+
 def _stop_lines(plan: dict) -> list[str]:
     """שורה תמציתית לכל עצירה, ממוספרת בדיוק כמו הסמנים על המפה."""
     min_power_kw = (plan.get("car_params") or {}).get("min_power_kw")
@@ -202,6 +211,9 @@ def _stop_lines(plan: dict) -> list[str]:
         lines.append(
             f'{stop_label(idx)} <b>{html.escape(name)}</b> — אחרי {stop["distance_from_origin_km"]:.0f} ק"מ'
         )
+        battery_line = _battery_line(stop)
+        if battery_line:
+            lines.append(battery_line)
         lines.append(f"     {' · '.join(details)}")
         relaxation = stop.get("relaxation") or {}
         if relaxation.get("providers") or relaxation.get("price") or (
@@ -226,6 +238,11 @@ def render_plan(plan: dict, origin_name: str, dest_name: str, plan_id: Optional[
         lines.append("✅ הטווח מספיק להגעה ישירה, בלי לעצור בדרך.")
     else:
         lines.extend(_stop_lines(plan))
+
+    arrival_percent = plan.get("arrival_battery_percent")
+    if arrival_percent is not None and num_stops > 0:
+        lines.append("")
+        lines.append(f"🏁 צפוי להגיע ליעד עם כ-{arrival_percent:.0f}% סוללה.")
 
     missing = plan.get("missing_segments") or []
     if missing:

@@ -16,6 +16,9 @@ SAMPLE_PLAN = {
     "duration_hours": 3.6,
     "num_stops": 1,
     "available_range_km": 245.0,
+    "recharged_range_km": 315.0,
+    "arrival_battery_percent": 65.0,
+    "route_source": "osrm",
     "origin": {"lat": 32.0853, "lng": 34.7818},
     "destination": {"lat": 29.557, "lng": 34.952},
     "car_params": {
@@ -27,6 +30,10 @@ SAMPLE_PLAN = {
         {
             "segment_index": 1,
             "distance_from_origin_km": 208.0,
+            "leg_distance_km": 208.0,
+            "off_route_km": 2.0,
+            "battery_arrival_percent": 21.0,
+            "battery_departure_percent": 100.0,
             "station": {
                 "id": 1, "name": "מתחם אלון בירוחם", "lat": 31.0, "lng": 35.0,
                 "max_power": 150.0, "provider_name": "EVI", "max_per_kwh": 1.8,
@@ -161,6 +168,8 @@ class TestSettingsReturnPath(unittest.TestCase):
 class TestPlanScreen(unittest.TestCase):
     def test_summary_is_short_and_lists_every_stop(self):
         text, buttons = screens.render_plan(SAMPLE_PLAN, "תל אביב", "אילת", 7)
+        self.assertIn("🔋 מגיע עם 21% · טען ל-100%", text)
+        self.assertIn("להגיע ליעד עם כ-65%", text)
         self.assertIn("מתחם אלון בירוחם", text)
         self.assertIn("אילת", text)
         # התקציר נועד להיקרא במבט אחד לצד המפה, לא להיות מגילה.
