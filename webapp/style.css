@@ -601,6 +601,84 @@ button:active { transform: scale(0.97); }
   transform: translateY(58px);
 }
 
+/* collapsible bottom sheets (list + trip planner) ---------------------------
+
+   Both sheets float over the map, so the only way to see what is underneath is
+   to push them down. Collapsing translates the sheet by its own height less the
+   peek rail -- the handle plus the one row worth keeping on screen -- so the
+   whole move stays on the compositor and the sheet never re-lays-out while it
+   travels. --sheet-peek-h is measured and written by app.js, because the rail
+   grows with its content (a route summary is taller than a title). */
+
+.sheet-collapsible.is-collapsed {
+  transform: translateY(calc(100% - var(--sheet-peek-h, 64px)));
+}
+
+/* While a finger is on the handle the sheet is driven from pointermove, 1:1,
+   with no transition in the way -- otherwise every frame chases the last one.
+   Spelled out per sheet because the transition it has to beat is set on the
+   ID rules below. */
+#list-panel.is-dragging,
+#trip-panel.is-dragging {
+  transition: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.sheet-handle {
+  flex: 0 0 auto;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 11px 0 7px;
+  background: none;
+  border: none;
+  border-radius: 18px 18px 0 0;
+  cursor: grab;
+  /* the browser must not claim the vertical swipe for scrolling */
+  touch-action: none;
+}
+
+.sheet-handle:active { cursor: grabbing; }
+
+/* The global button press scales the whole control, which on a full-width bar
+   reads as the sheet flexing. The grip darkens instead. */
+.sheet-handle:active { transform: none; }
+.sheet-handle:active .sheet-grip { background: var(--text-secondary); }
+
+.sheet-handle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -3px;
+}
+
+.sheet-grip {
+  width: 40px;
+  height: 5px;
+  border-radius: var(--radius-pill);
+  background: var(--border);
+  transition: background 160ms var(--ease-out);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .sheet-handle:hover .sheet-grip { background: var(--text-secondary); }
+}
+
+/* Only shown once the sheet is down: expanded, the grip already says "drag me",
+   and a chevron pointing at content that is on screen would be noise. */
+.sheet-chevron {
+  position: absolute;
+  inset-inline-start: 16px;
+  top: 50%;
+  margin-top: -8px;
+  color: var(--text-secondary);
+  opacity: 0;
+  transition: opacity 160ms var(--ease-out);
+}
+
+.is-collapsed .sheet-chevron { opacity: 1; }
+
 /* list panel (bottom sheet) */
 
 #list-panel {
@@ -616,7 +694,7 @@ button:active { transform: scale(0.97); }
   display: flex;
   flex-direction: column;
   z-index: 1200;
-  transition: transform 260ms var(--ease-drawer);
+  transition: transform 220ms var(--ease-drawer);
 }
 
 #list-panel.hidden {
@@ -624,19 +702,14 @@ button:active { transform: scale(0.97); }
   pointer-events: none;
 }
 
-#list-panel-handle {
-  width: 36px;
-  height: 4px;
-  border-radius: var(--radius-pill);
-  background: var(--border);
-  margin: 8px auto 0;
-}
-
+/* Doubles as the collapsed sheet's peek rail, hence the bottom inset: down
+   there the title and the close button sit on the home indicator. */
 #list-panel-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 10px 16px 12px;
+  padding: 10px 16px max(12px, env(safe-area-inset-bottom));
+  flex: 0 0 auto;
   font-weight: 600;
   font-size: 14px;
   border-bottom: 1px solid var(--border);
@@ -981,7 +1054,7 @@ button:active { transform: scale(0.97); }
   display: flex;
   flex-direction: column;
   z-index: 1200;
-  transition: transform 280ms var(--ease-drawer);
+  transition: transform 220ms var(--ease-drawer);
 }
 
 #trip-panel.hidden {
@@ -989,13 +1062,18 @@ button:active { transform: scale(0.97); }
   pointer-events: none;
 }
 
-#trip-panel-handle {
+/* The planner's peek rail. It carries the sheet title while there is nothing
+   to report and the route line once there is, so collapsing the sheet never
+   costs the user the headline numbers. Kept in flow in both states: its height
+   is what the collapsed offset is measured from. */
+#trip-peek {
   flex: 0 0 auto;
-  width: 36px;
-  height: 4px;
-  border-radius: var(--radius-pill);
-  background: var(--border);
-  margin: 8px auto 0;
+  padding: 2px 16px max(9px, env(safe-area-inset-bottom));
+  text-align: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
 }
 
 #trip-panel-inner {
@@ -1605,6 +1683,8 @@ button:active { transform: scale(0.97); }
 
 @media (prefers-reduced-motion: reduce) {
   #list-panel, #trip-panel { transition: opacity 180ms ease; }
+  /* the rule above also drops the transform transition, so a sheet still
+     collapses under reduced motion -- it just arrives without the travel */
   #list-panel.hidden, #trip-panel.hidden { transform: none; opacity: 0; }
   button, .list-item, .trip-stop-item, .saved-trip-item, #search, .popup-actions a, .mode-tab { transition: none; }
   #map-stack .leaflet-top.leaflet-left { transition: none; }

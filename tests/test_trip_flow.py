@@ -14,6 +14,7 @@ import tempfile
 import time
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
+from urllib.parse import parse_qs, urlparse
 
 from telethon import events
 
@@ -520,6 +521,78 @@ class TestTripCommandAndMap(TripFlowTestCase):
         self.assertEqual(destination, (29.5, 34.9))
         self.assertEqual(stops, [(31.0, 35.0)])
         self.assertEqual(event.respond.await_args.kwargs["file"], map_path)
+
+
+class TestTripMapFollowsMapFormat(TripFlowTestCase):
+    """מפת המסלול מתנהגת כמו מפת החיפוש: בפורמט "אינטראקטיבי" לא מרנדרים תמונה
+    אלא שולחים קישור ל-WebApp, ובפורמטים האחרים כלום לא השתנה."""
+
+    def _battery_event(self):
+        self.session.trip_state = "awaiting_battery"
+        self.session.trip_message_id = 10
+        self.session.trip_origin = {"lat": 32.0, "lng": 34.8, "name": "תל אביב"}
+        self.session.trip_destination = {"lat": 29.5, "lng": 34.9, "name": "אילת"}
+        event = FakeCallbackEvent(b"tripbatt:set:80", self.chat_id, message_id=10)
+        event.respond = AsyncMock(return_value=MagicMock(id=42))
+        return event
+
+    async def _plan_with_format(self, map_format, event):
+        """מריץ תכנון שלם ומחזיר את ה-mock של render_trip_map לבדיקה."""
+        with temp_map_file() as map_path, \
+             patch.object(trip, "get_user_settings",
+                          AsyncMock(return_value=fake_user_settings(map_format=map_format))), \
+             patch.object(trip, "plan_trip", AsyncMock(return_value=make_plan())), \
+             patch.object(trip, "save_trip_plan", AsyncMock(return_value=7)), \
+             patch.object(trip, "render_trip_map", AsyncMock(return_value=map_path)) as renderer:
+            await self.client.dispatch(event)
+        return renderer
+
+    async def test_interactive_sends_a_link_and_never_renders(self):
+        event = self._battery_event()
+
+        renderer = await self._plan_with_format("interactive", event)
+
+        renderer.assert_not_awaited()
+        kwargs = event.respond.await_args.kwargs
+        self.assertNotIn("file", kwargs)
+        self.assertEqual(event.respond.await_args.args[0], trip.TRIP_MAP_LINK_MESSAGE)
+        query = parse_qs(urlparse(kwargs["buttons"][0][0].url).query)
+        self.assertEqual(query["from_lat"], ["32.0"])
+        self.assertEqual(query["from_lng"], ["34.8"])
+        self.assertEqual(query["to_lat"], ["29.5"])
+        self.assertEqual(query["to_lng"], ["34.9"])
+        # אותו שדה כמו בתמונה, כדי ש-_clear_trip_map ימחק גם הודעת קישור
+        self.assertEqual(self.session.trip_map_msg_id, 42)
+
+    async def test_interactive_link_message_replaces_the_previous_one(self):
+        """אין צבירת הודעות: מפה קודמת נמחקת גם כשהחדשה היא טקסט עם כפתור."""
+        self.session.trip_map_msg_id = 41
+        event = self._battery_event()
+
+        await self._plan_with_format("interactive", event)
+
+        event.client.delete_messages.assert_awaited_once_with(self.chat_id, 41)
+        self.assertEqual(self.session.trip_map_msg_id, 42)
+
+    async def test_photo_still_renders_a_static_route_map(self):
+        event = self._battery_event()
+
+        renderer = await self._plan_with_format("photo", event)
+
+        renderer.assert_awaited_once()
+        kwargs = event.respond.await_args.kwargs
+        self.assertIn("file", kwargs)
+        self.assertEqual(kwargs["message"], trip.TRIP_MAP_CAPTION)
+        self.assertFalse(kwargs["force_document"])
+
+    async def test_document_still_renders_a_static_route_map(self):
+        event = self._battery_event()
+
+        renderer = await self._plan_with_format("document", event)
+
+        renderer.assert_awaited_once()
+        self.assertIn("file", event.respond.await_args.kwargs)
+        self.assertTrue(event.respond.await_args.kwargs["force_document"])
 
 
 class TestOneMessageEndToEnd(TripFlowTestCase):

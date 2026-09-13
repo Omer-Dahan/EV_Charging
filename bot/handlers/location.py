@@ -10,6 +10,7 @@ from telethon.tl.custom import Button
 from bot.config import settings
 from bot.keyboards.inline import (
     geocode_selection_keyboard,
+    interactive_map_keyboard,
     no_results_keyboard,
     station_card_keyboard,
     welcome_keyboard,
@@ -20,7 +21,12 @@ from bot.services.geocoder import geocode, parse_coordinates
 from bot.services.map_renderer import render_map
 from bot.services.station_search import find_nearby, is_in_israel
 from bot.states import get_session
-from bot.storage.users_db import ensure_user, get_user_settings, record_search_event
+from bot.storage.users_db import (
+    DEFAULT_MAP_FORMAT,
+    ensure_user,
+    get_user_settings,
+    record_search_event,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +65,10 @@ MAP_CAPTION = (
     "🗺️ מפת האזור: המיקום שלך מסומן באדום 🔴. "
     "סמן ירוק עם ברק = עמדת טעינה אחת. "
     "סמן ירוק עם מספר = מספר עמדות טעינה באותו אזור."
+)
+INTERACTIVE_MAP_MESSAGE = (
+    "🗺️ <b>מפת העמדות באזור</b>\n"
+    "הכפתור פותח מפה חיה, ממורכזת על אזור החיפוש, עם כל העמדות, סינון וחיפוש."
 )
 
 
@@ -144,17 +154,20 @@ async def send_map_image(
     """שולח תמונת מפה בנפרד מכרטיסיית העמדה. כשלון כאן (רשת, שגיאת רינדור וכו')
     לא אמור לחסום את החיפוש - לכן נבלע ונרשם ללוג בלבד."""
     try:
+        if map_format is None:
+            chat_id = getattr(event, "chat_id", None)
+            if chat_id is not None:
+                user_settings = await get_user_settings(chat_id, settings.users_db_path)
+                map_format = user_settings.map_format
+            else:
+                map_format = DEFAULT_MAP_FORMAT
+        if map_format == "interactive":
+            # אין מה לרנדר: המשתמש מקבל קישור למפה החיה (ראה send_interactive_map).
+            return
         map_path = await render_map(lat, lng, radius_km, results)
         if map_path is None:
             return
         try:
-            if map_format is None:
-                chat_id = getattr(event, "chat_id", None)
-                if chat_id is not None:
-                    user_settings = await get_user_settings(chat_id, settings.users_db_path)
-                    map_format = user_settings.map_format
-                else:
-                    map_format = "document"
             force_doc = (map_format != "photo")
             await event.respond(
                 file=map_path,
@@ -168,6 +181,18 @@ async def send_map_image(
                 logger.warning("failed to remove temp map file %s", map_path)
     except Exception:
         logger.exception("failed to send map image")
+
+
+async def send_interactive_map(event, lat: float, lng: float, is_private: bool = True) -> None:
+    """שולח קישור למפה האינטראקטיבית במקום תמונה סטטית, ממורכז על נקודת החיפוש."""
+    try:
+        await event.respond(
+            INTERACTIVE_MAP_MESSAGE,
+            buttons=interactive_map_keyboard(lat, lng, is_private=is_private),
+            parse_mode="html",
+        )
+    except Exception:
+        logger.exception("failed to send interactive map link")
 
 
 async def execute_search(
@@ -211,14 +236,17 @@ async def execute_search(
                 parse_mode="html",
             )
         else:
-            await send_map_image(
-                event,
-                lat,
-                lng,
-                radius_km,
-                session.all_results or results,
-                map_format=user_settings.map_format,
-            )
+            if user_settings.map_format == "interactive":
+                await send_interactive_map(event, lat, lng, is_private=event.is_private)
+            else:
+                await send_map_image(
+                    event,
+                    lat,
+                    lng,
+                    radius_km,
+                    session.all_results or results,
+                    map_format=user_settings.map_format,
+                )
             text, buttons = render_station_card(session, is_private=event.is_private)
             result_msg = await event.respond(
                 text, buttons=buttons, parse_mode="html"

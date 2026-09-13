@@ -27,7 +27,7 @@ from bot.services.trip_planner import (
     TRIP_DEFAULT_SAFETY_MARGIN_PERCENT,
     TRIP_PREFERRED_MIN_POWER_KW,
 )
-from bot.storage.users_db import get_user_settings, upsert_user
+from bot.storage.users_db import DEFAULT_MAP_FORMAT, get_user_settings, upsert_user
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +53,7 @@ PRICE_DISPLAY = {
 }
 
 MAP_FORMAT_DISPLAY = {
+    "interactive": "🗺️ מפה אינטראקטיבית",
     "document": "📄 קובץ (חד, ללא דחיסה)",
     "photo": "🖼️ תמונה (תצוגה ישירה)",
 }
@@ -63,7 +64,7 @@ SETTINGS_MAIN_TEMPLATE = (
     "⚡ <b>מהירות טעינה:</b> {speed_display}\n"
     '📏 <b>רדיוס ברירת מחדל:</b> {default_radius} ק"מ\n'
     "💰 <b>מחיר מקסימלי:</b> {price_display}\n"
-    "🗺️ <b>פורמט מפה:</b> {map_format_display}\n\n"
+    "🗺️ <b>תצוגת מפה:</b> {map_format_display}\n\n"
     "בחר הגדרה לשינוי:"
 )
 
@@ -77,7 +78,7 @@ async def _render_main_text(chat_id: int) -> str:
         speed_display=SPEED_DISPLAY.get(user_settings.speed_filter, "הכל (ללא סינון)"),
         default_radius=user_settings.default_radius,
         price_display=PRICE_DISPLAY.get(user_settings.max_price, "ללא הגבלה"),
-        map_format_display=MAP_FORMAT_DISPLAY.get(user_settings.map_format, "📄 קובץ (חד, ללא דחיסה)"),
+        map_format_display=MAP_FORMAT_DISPLAY.get(user_settings.map_format, MAP_FORMAT_DISPLAY[DEFAULT_MAP_FORMAT]),
     )
 
 
@@ -127,9 +128,11 @@ async def show_map_format(event: events.CallbackQuery.Event) -> None:
     chat_id = event.chat_id
     user_settings = await get_user_settings(chat_id, app_settings.users_db_path)
     await event.edit(
-        "🗺️ <b>בחר פורמט לשליחת המפה:</b>\n\n"
-        "• <b>קובץ (Document):</b> נשלח ללא דחיסה, באיכות וחדות מקסימלית (מופיע כקובץ להורדה/פתיחה).\n"
-        "• <b>תמונה (Photo):</b> מוצגת מיד בצ'אט ומאפשרת צפייה נוחה ומהירה (נדחסת מעט ע\"י טלגרם).",
+        "🗺️ <b>איך לקבל את המפה אחרי חיפוש?</b>\n\n"
+        "• <b>מפה אינטראקטיבית:</b> קישור למפה חיה עם כל העמדות, סינון, חיפוש ותכנון נסיעה. "
+        "נפתחת ממורכזת על אזור החיפוש (מומלץ).\n"
+        "• <b>קובץ (Document):</b> תמונת מפה סטטית ללא דחיסה, באיכות וחדות מקסימלית (קובץ להורדה/פתיחה).\n"
+        "• <b>תמונה (Photo):</b> תמונת מפה סטטית שמוצגת מיד בצ'אט (נדחסת מעט ע\"י טלגרם).",
         buttons=map_format_keyboard(user_settings.map_format),
         parse_mode="html",
     )
@@ -276,7 +279,7 @@ def register_handlers(client: TelegramClient) -> None:
                 await show_map_format(event)
             elif data.startswith("settings:mapfmt:"):
                 fmt_val = data.split(":", 2)[2]
-                if fmt_val not in ("document", "photo"):
+                if fmt_val not in ("interactive", "document", "photo"):
                     await event.answer(ERROR_GENERIC, alert=True)
                     return
                 await _save_and_return(event, map_format=fmt_val)
@@ -343,7 +346,7 @@ def register_handlers(client: TelegramClient) -> None:
                         return
                 await _save_and_return(event, max_price=max_price)
             elif filter_type == "mapfmt":
-                if value not in ("document", "photo"):
+                if value not in ("interactive", "document", "photo"):
                     await event.answer(ERROR_GENERIC, alert=True)
                     return
                 await _save_and_return(event, map_format=value)

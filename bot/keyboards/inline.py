@@ -7,19 +7,51 @@ from telethon.tl.types import KeyboardButtonWebView
 from bot.config import WEBAPP_URL
 
 
-def _webapp_button(text: str, lat: float = None, lng: float = None, is_private: bool = True):
-    """כפתור אינליין שפותח את מפת העמדות.
+def webapp_map_url(lat: float = None, lng: float = None) -> str:
+    """כתובת המפה האינטראקטיבית. עם lat/lng המפה נפתחת ממורכזת על נקודת החיפוש."""
+    if lat is None or lng is None:
+        return WEBAPP_URL
+    return f"{WEBAPP_URL}?{urlencode({'lat': lat, 'lng': lng})}"
+
+
+def webapp_trip_url(origin: tuple[float, float], destination: tuple[float, float]) -> str:
+    """כתובת המפה עם פרמטרי מסלול. ה-WebApp נפתח ישירות בטאב תכנון הנסיעה,
+    ממלא את שדות המוצא והיעד ומחשב את המסלול בעצמו."""
+    params = {
+        "from_lat": origin[0],
+        "from_lng": origin[1],
+        "to_lat": destination[0],
+        "to_lng": destination[1],
+    }
+    return f"{WEBAPP_URL}?{urlencode(params)}"
+
+
+def _webapp_button(text: str, url: str, is_private: bool = True):
+    """כפתור אינליין שפותח את המפה האינטראקטיבית.
 
     בצ'אט פרטי - כפתור web_app (KeyboardButtonWebView) שפותח את המפה בתוך טלגרם.
     בקבוצות - טלגרם אוסרת כפתורי web_app (BUTTON_TYPE_INVALID), אז נופלים לכפתור
     URL רגיל שפותח את אותה מפה בדפדפן החיצוני.
     """
-    url = WEBAPP_URL
-    if lat is not None and lng is not None:
-        url = f"{WEBAPP_URL}?{urlencode({'lat': lat, 'lng': lng})}"
     if is_private:
         return KeyboardButtonWebView(text, url)
     return Button.url(text, url)
+
+
+def interactive_map_keyboard(lat: float, lng: float, is_private: bool = True) -> list:
+    """המקלדת שמחליפה את תמונת המפה כשהמשתמש בחר בפורמט "מפה אינטראקטיבית"."""
+    return [[_webapp_button("🗺️ פתיחת המפה", webapp_map_url(lat, lng), is_private=is_private)]]
+
+
+def trip_map_keyboard(
+    origin: tuple[float, float],
+    destination: tuple[float, float],
+    is_private: bool = True,
+) -> list:
+    """המקלדת שמחליפה את תמונת מפת המסלול כשהמשתמש בחר בפורמט "מפה אינטראקטיבית"."""
+    return [[
+        _webapp_button("🗺️ פתיחת מפת המסלול", webapp_trip_url(origin, destination), is_private=is_private)
+    ]]
 
 
 def station_card_keyboard(
@@ -72,7 +104,7 @@ def station_card_keyboard(
     ]
     rows.insert(
         3,
-        [_webapp_button("🗺️ מפת עמדות", lat=user_lat, lng=user_lng, is_private=is_private)],
+        [_webapp_button("🗺️ מפת עמדות", webapp_map_url(user_lat, user_lng), is_private=is_private)],
     )
     return rows
 
@@ -81,7 +113,7 @@ def welcome_keyboard(is_private: bool = True) -> list:
     rows = [
         [Button.inline("📍 שיתוף מיקום GPS", data=b"loc:request")],
     ]
-    rows.append([_webapp_button("🗺️ מפת עמדות", is_private=is_private)])
+    rows.append([_webapp_button("🗺️ מפת עמדות", webapp_map_url(), is_private=is_private)])
     rows.append([Button.inline("⚙️ הגדרות", data=b"settings:main")])
     rows.append([
         Button.url("📢 ערוץ עדכונים", "https://t.me/YD_IL_BOTS"),
@@ -167,7 +199,7 @@ def settings_main_keyboard() -> list:
             Button.inline("💰 מחיר מקסימלי", data=b"settings:price"),
         ],
         [
-            Button.inline("🗺️ מפה: קובץ / תמונה", data=b"settings:mapfmt"),
+            Button.inline("🗺️ תצוגת מפה", data=b"settings:mapfmt"),
         ],
         [
             Button.inline("🚗 הגדרות נסיעה", data=b"settings:trip"),
@@ -397,6 +429,9 @@ def map_format_keyboard(current: str) -> list:
         return f"✅ {label}" if current == val else label
 
     return [
+        [
+            Button.inline(mark("interactive", "🗺️ מפה אינטראקטיבית (מומלץ)"), data=b"settings:mapfmt:interactive"),
+        ],
         [
             Button.inline(mark("document", "📄 קובץ (חד, ללא דחיסה)"), data=b"settings:mapfmt:document"),
         ],

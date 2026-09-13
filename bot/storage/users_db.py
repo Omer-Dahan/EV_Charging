@@ -6,6 +6,10 @@ from typing import List, Optional, Dict, Any
 
 logger = logging.getLogger(__name__)
 
+# ברירת המחדל למשתמש חדש היא המפה האינטראקטיבית (WebApp) ולא תמונה סטטית.
+# משתמשים שכבר בחרו photo/document שומרים על הבחירה שלהם - הערך נשמר ב-DB.
+DEFAULT_MAP_FORMAT = "interactive"
+
 # עמודות שנוספו לטבלת users אחרי היצירה המקורית - כל אחת מטופלת בנפרד
 # ב-init_users_db כדי לתמוך במיגרציה של DB קיים בלי לאבד נתונים.
 _TRIP_MIGRATION_COLUMNS = (
@@ -28,7 +32,7 @@ class UserSettings:
     speed_filter: str = "ALL"
     default_radius: int = 10
     max_price: Optional[float] = None
-    map_format: str = "document"
+    map_format: str = DEFAULT_MAP_FORMAT
     # הגדרות מצב נסיעה (Trip Mode) - None = השתמש בברירת המחדל שמוגדרת ב-trip_planner.
     trip_real_range_km: Optional[float] = None
     trip_battery_percent: Optional[float] = None
@@ -50,7 +54,7 @@ async def init_users_db(db_path: str) -> None:
                 speed_filter TEXT DEFAULT 'ALL',
                 default_radius INTEGER DEFAULT 10,
                 max_price REAL DEFAULT NULL,
-                map_format TEXT DEFAULT 'document',
+                map_format TEXT DEFAULT 'interactive',
                 trip_real_range_km REAL DEFAULT NULL,
                 trip_battery_percent REAL DEFAULT NULL,
                 trip_safety_margin_percent REAL DEFAULT NULL,
@@ -67,7 +71,7 @@ async def init_users_db(db_path: str) -> None:
         columns = [row[1] for row in await cursor.fetchall()]
         if "map_format" not in columns:
             try:
-                await db.execute("ALTER TABLE users ADD COLUMN map_format TEXT DEFAULT 'document'")
+                await db.execute("ALTER TABLE users ADD COLUMN map_format TEXT DEFAULT 'interactive'")
             except Exception as e:
                 logger.warning("Failed to add map_format column during migration: %s", e)
 
@@ -261,7 +265,7 @@ async def get_user_settings(chat_id: int, db_path: str) -> UserSettings:
         ) as cursor:
             row = await cursor.fetchone()
             if row:
-                map_format = "document"
+                map_format = DEFAULT_MAP_FORMAT
                 if "map_format" in row.keys() and row["map_format"]:
                     map_format = row["map_format"]
                 row_keys = row.keys()
@@ -325,7 +329,7 @@ async def upsert_user(settings: UserSettings, db_path: str) -> None:
             settings.chat_id, settings.first_name, settings.username,
             settings.connector_filter, settings.speed_filter,
             settings.default_radius, settings.max_price,
-            settings.map_format or "document",
+            settings.map_format or DEFAULT_MAP_FORMAT,
             settings.trip_real_range_km, settings.trip_battery_percent,
             settings.trip_safety_margin_percent, settings.trip_consumption_kwh_100km,
             settings.trip_min_power_kw, settings.trip_max_price, allowed_providers_json,

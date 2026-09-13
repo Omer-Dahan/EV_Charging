@@ -423,6 +423,23 @@
     return !document.getElementById("provider-dropdown").classList.contains("hidden");
   }
 
+  // The planner needs the station list before it can pick charging stops, and a
+  // deep link (?from_lat=...) starts planning the moment the page opens -- well
+  // before this fetch lands. Waiters also run on failure, so such a link ends
+  // with a route drawn and a "no stop found" warning instead of hanging.
+  var stationsReady = false;
+  var stationsWaiters = [];
+
+  function resolveStations() {
+    stationsReady = true;
+    stationsWaiters.splice(0).forEach(function (fn) { fn(); });
+  }
+
+  function whenStationsReady(fn) {
+    if (stationsReady) fn();
+    else stationsWaiters.push(fn);
+  }
+
   fetch("stations.json")
     .then(function (res) { return res.json(); })
     .then(function (data) {
@@ -432,10 +449,12 @@
       });
       populateProviders(data);
       refreshMarkers();
+      resolveStations();
     })
     .catch(function (err) {
       document.getElementById("count").textContent = "שגיאה בטעינת הנתונים";
       console.error(err);
+      resolveStations();
     });
 
   var _searchTimer = null;
@@ -481,11 +500,194 @@
     });
   });
 
+  // ---------- collapsible bottom sheets ----------
+  //
+  // Both sheets float over the map, so the only way to see what they cover is
+  // to push them down. Collapsed, a sheet keeps its peek rail on screen -- the
+  // handle plus the one row worth keeping -- and parks the rest below the
+  // viewport. Dragging the handle and tapping it land in the same two states;
+  // the drag just gets to decide with velocity instead of a boolean.
+
+  var SHEET_SETTLE_MS = 260; // the 220ms transform plus a frame to spare
+  var DRAG_SLOP_PX = 8;
+
+  // Where the sheet would come to rest if the release velocity were left to
+  // decay on its own (the projection Apple uses for scroll deceleration). It is
+  // what makes a short flick throw the sheet the rest of the way.
+  function projectMomentum(velocityPxPerSec) {
+    var deceleration = 0.998;
+    return (velocityPxPerSec / 1000) * deceleration / (1 - deceleration);
+  }
+
+  // Past an edge the sheet keeps following the finger, just less and less of
+  // the way. A hard stop reads as frozen; resistance reads as "nothing more
+  // here".
+  function rubberBand(overshootPx, dimensionPx) {
+    var c = 0.55;
+    return (overshootPx * dimensionPx * c) / (dimensionPx + c * overshootPx);
+  }
+
+  function makeCollapsibleSheet(config) {
+    var panel = config.panel;
+    var handle = config.handle;
+    var content = config.content;
+    var peekEl = config.peekEl || handle;
+    var collapsed = false;
+    var drag = null;
+    var droppedAfterDrag = false;
+    var settleTimer = null;
+
+    // Both rects live inside the same transformed element, so their difference
+    // is the same whether the sheet is up, down or mid-drag.
+    function peekHeight() {
+      return peekEl.getBoundingClientRect().bottom - panel.getBoundingClientRect().top;
+    }
+
+    function collapsedOffset() {
+      return Math.max(0, panel.offsetHeight - peekHeight());
+    }
+
+    // The CSS does the travel off calc(100% - var), so only the rail height has
+    // to come from here -- and it changes whenever its content does.
+    function measure() {
+      panel.style.setProperty("--sheet-peek-h", Math.round(peekHeight()) + "px");
+    }
+
+    function apply(next) {
+      collapsed = next;
+      // Before measuring: the rail is allowed to say something different once
+      // it is the only thing left on screen.
+      if (config.onToggle) config.onToggle(collapsed);
+      measure();
+      panel.classList.toggle("is-collapsed", collapsed);
+      handle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+      handle.setAttribute("aria-label", collapsed ? config.labelCollapsed : config.labelExpanded);
+      // Off screen and out of the tab order together.
+      if (content) content.toggleAttribute("inert", collapsed);
+    }
+
+    function setCollapsed(next) {
+      if (next === collapsed) {
+        measure();
+        return;
+      }
+      apply(next);
+      if (config.storageKey) {
+        try { localStorage.setItem(config.storageKey, next ? "1" : "0"); } catch (e) { /* storage blocked */ }
+      }
+      clearTimeout(settleTimer);
+      settleTimer = setTimeout(function () {
+        if (config.onSettled) config.onSettled(collapsed);
+      }, SHEET_SETTLE_MS);
+    }
+
+    handle.addEventListener("pointerdown", function (e) {
+      if (e.button > 0) return;
+      drag = {
+        id: e.pointerId,
+        startY: e.clientY,
+        lastY: e.clientY,
+        lastT: e.timeStamp,
+        base: collapsed ? collapsedOffset() : 0,
+        offset: collapsed ? collapsedOffset() : 0,
+        velocity: 0,
+        moved: false,
+      };
+      // Keeps the drag alive once the finger leaves the handle, which it will:
+      // the handle is 30px tall and the travel is ten times that.
+      try { handle.setPointerCapture(e.pointerId); } catch (err) { /* pointer already gone */ }
+      panel.classList.add("is-dragging");
+    });
+
+    handle.addEventListener("pointermove", function (e) {
+      if (!drag || e.pointerId !== drag.id) return;
+      var delta = e.clientY - drag.startY;
+      if (!drag.moved) {
+        if (Math.abs(delta) < DRAG_SLOP_PX) return;
+        drag.moved = true;
+      }
+      var dt = e.timeStamp - drag.lastT;
+      if (dt > 0) drag.velocity = (e.clientY - drag.lastY) / dt * 1000;
+      drag.lastY = e.clientY;
+      drag.lastT = e.timeStamp;
+
+      var limit = collapsedOffset();
+      var wanted = drag.base + delta;
+      if (wanted < 0) wanted = -rubberBand(-wanted, panel.offsetHeight);
+      else if (wanted > limit) wanted = limit + rubberBand(wanted - limit, panel.offsetHeight);
+      drag.offset = wanted;
+      panel.style.transform = "translateY(" + wanted.toFixed(1) + "px)";
+    });
+
+    function endDrag(e, cancelled) {
+      if (!drag || e.pointerId !== drag.id) return;
+      var finished = drag;
+      drag = null;
+
+      var limit = collapsedOffset();
+      measure();
+      // Handing the sheet back to CSS: the transition is restored and the
+      // inline offset dropped in the same task, so it animates on from wherever
+      // the finger left it instead of jumping.
+      panel.classList.remove("is-dragging");
+      panel.style.transform = "";
+
+      if (!finished.moved) return; // a tap; the click handler owns it
+      droppedAfterDrag = true;     // ...and a drag must not also toggle
+      if (cancelled) return;
+      setCollapsed(finished.offset + projectMomentum(finished.velocity) > limit / 2);
+    }
+
+    handle.addEventListener("pointerup", function (e) { endDrag(e, false); });
+    handle.addEventListener("pointercancel", function (e) { endDrag(e, true); });
+
+    handle.addEventListener("click", function () {
+      if (droppedAfterDrag) {
+        droppedAfterDrag = false;
+        return;
+      }
+      setCollapsed(!collapsed);
+    });
+
+    window.addEventListener("resize", measure);
+
+    var stored = null;
+    if (config.storageKey) {
+      try { stored = localStorage.getItem(config.storageKey); } catch (e) { /* storage blocked */ }
+    }
+    apply(stored === "1");
+
+    return {
+      expand: function () { setCollapsed(false); },
+      collapse: function () { setCollapsed(true); },
+      isCollapsed: function () { return collapsed; },
+      refresh: measure,
+    };
+  }
+
+  var listPanel = document.getElementById("list-panel");
+
+  // No storageKey here: the list sheet starts closed on every load, so a
+  // remembered collapse would only turn the "רשימה" button into a stub that
+  // opens nothing. It always opens expanded; collapsing lasts as long as the
+  // sheet is up. The planner sheet, which has no closed state, does persist.
+  var listSheet = makeCollapsibleSheet({
+    panel: listPanel,
+    handle: document.getElementById("list-panel-handle"),
+    content: document.getElementById("list-items"),
+    peekEl: document.getElementById("list-panel-header"),
+    labelExpanded: "כיווץ רשימת העמדות",
+    labelCollapsed: "פתיחת רשימת העמדות",
+    onSettled: function () { map.invalidateSize(); },
+  });
+
   document.getElementById("list-toggle").addEventListener("click", function () {
-    document.getElementById("list-panel").classList.toggle("hidden");
+    var opening = listPanel.classList.contains("hidden");
+    listPanel.classList.toggle("hidden", !opening);
+    if (opening) listSheet.expand();
   });
   document.getElementById("list-close").addEventListener("click", function () {
-    document.getElementById("list-panel").classList.add("hidden");
+    listPanel.classList.add("hidden");
   });
 
   // Surface for trip-ui.js, which runs its own Leaflet instance on the trip
@@ -495,6 +697,7 @@
     mainMap: map,
     defaultView: DEFAULT_VIEW,
     getStations: function () { return allStations; },
+    whenStationsReady: whenStationsReady,
     icon: icon,
     escapeHtml: escapeHtml,
     connectorsText: connectorsText,
@@ -503,6 +706,7 @@
     registerPane: registerPane,
     setActivePane: setActivePane,
     addBaseTiles: addBaseTiles,
+    makeCollapsibleSheet: makeCollapsibleSheet,
     onThemeChange: onThemeChange,
     currentTheme: currentTheme,
   };

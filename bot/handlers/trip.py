@@ -10,7 +10,7 @@ from telethon.tl.custom import Button
 from bot.config import settings
 from bot.handlers import trip_screens as screens
 from bot.handlers.location import ERROR_GENERIC, LOCATION_PROMPT_MESSAGE
-from bot.keyboards.inline import welcome_keyboard
+from bot.keyboards.inline import trip_map_keyboard, welcome_keyboard
 from bot.keyboards.reply import location_request_keyboard
 from bot.services.geocoder import geocode, parse_coordinates
 from bot.services.map_renderer import render_trip_map
@@ -40,6 +40,11 @@ TRIP_INVALID_BATTERY_MESSAGE = "❌ יש להזין מספר בין 1 ל-100 (א
 TRIP_GPS_PROMPT_MESSAGE = "📍 שתף מיקום מהכפתור שלמטה — ההודעה הזו תיעלם אחר כך."
 TRIP_MAP_CAPTION = (
     "🗺️ מפת המסלול: 🔴 המוצא, 🏁 היעד, ועצירות הטעינה ממוספרות לפי סדר הנסיעה."
+)
+TRIP_MAP_LINK_MESSAGE = (
+    "🗺️ <b>מפת המסלול</b>\n"
+    "הכפתור פותח מפה חיה עם המוצא והיעד של הנסיעה. המסלול ועצירות הטעינה מחושבים שם, "
+    "ואפשר לשנות את נתוני הרכב ולחשב מחדש."
 )
 
 
@@ -113,17 +118,30 @@ async def _send_trip_map(
     stops: list[tuple[float, float]],
 ) -> None:
     """שולח את מפת המסלול כהודעה נפרדת (טלגרם לא הופכת הודעת טקסט להודעת מדיה
-    בעריכה), ומוחק קודם מפה קודמת של הזרימה כדי שלא יצטברו תמונות בצ'אט.
+    בעריכה), ומוחק קודם מפה קודמת של הזרימה כדי שלא יצטברו הודעות בצ'אט.
+
+    בפורמט "מפה אינטראקטיבית" לא מרנדרים כלום: ההודעה היא טקסט עם כפתור ל-WebApp,
+    שמקבל את המוצא והיעד ב-query ומחשב אצלו את המסלול. המזהה נשמר באותו שדה
+    (session.trip_map_msg_id), כך שהמחיקה של המפה הקודמת עובדת גם כשמתחלפים פורמטים.
 
     כשלון ברינדור/שליחה לא אמור להפיל את התוכנית עצמה - היא כבר מוצגת בטקסט.
     """
     await _clear_trip_map(event, chat_id, session)
     try:
+        user_settings = await get_user_settings(chat_id, settings.users_db_path)
+        if user_settings.map_format == "interactive":
+            msg = await event.respond(
+                TRIP_MAP_LINK_MESSAGE,
+                buttons=trip_map_keyboard(origin, destination, is_private=getattr(event, "is_private", True)),
+                parse_mode="html",
+            )
+            session.trip_map_msg_id = msg.id
+            return
+
         map_path = await render_trip_map(origin, destination, stops)
         if map_path is None:
             return
         try:
-            user_settings = await get_user_settings(chat_id, settings.users_db_path)
             msg = await event.respond(
                 file=map_path,
                 message=TRIP_MAP_CAPTION,

@@ -110,8 +110,11 @@
     </div>
   </div>
 
-  <div id="list-panel" class="hidden">
-    <div id="list-panel-handle"></div>
+  <div id="list-panel" class="sheet-collapsible hidden">
+    <button type="button" id="list-panel-handle" class="sheet-handle" aria-expanded="true" aria-controls="list-items" aria-label="כיווץ רשימת העמדות">
+      <span class="sheet-grip" aria-hidden="true"></span>
+      <svg class="icon sheet-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 15-6-6-6 6"/></svg>
+    </button>
     <div id="list-panel-header">
       <span>עמדות קרובות</span>
       <button id="list-close" type="button" aria-label="סגור רשימה">
@@ -121,8 +124,12 @@
     <div id="list-items"></div>
   </div>
 
-  <div id="trip-panel" class="hidden" role="tabpanel" aria-label="תכנון נסיעה">
-    <div id="trip-panel-handle"></div>
+  <div id="trip-panel" class="sheet-collapsible hidden" role="tabpanel" aria-label="תכנון נסיעה">
+    <button type="button" id="trip-panel-handle" class="sheet-handle" aria-expanded="true" aria-controls="trip-panel-inner" aria-label="כיווץ לוח תכנון הנסיעה">
+      <span class="sheet-grip" aria-hidden="true"></span>
+      <svg class="icon sheet-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 15-6-6-6 6"/></svg>
+    </button>
+    <div id="trip-peek">תכנון נסיעה</div>
     <div id="trip-panel-inner">
 
       <div class="trip-points">

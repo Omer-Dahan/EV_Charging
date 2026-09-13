@@ -44,6 +44,7 @@
   var statusEl = $("trip-status");
   var summaryEl = $("trip-summary"), summaryStatsEl = $("trip-summary-stats");
   var stopsListEl = $("trip-stops-list");
+  var tripPeekEl = $("trip-peek");
   var savedPanel = $("saved-trips-panel"), savedClose = $("saved-trips-close"), savedList = $("saved-trips-list"), savedEmpty = $("saved-trips-empty");
 
   var tripState = { origin: null, destination: null };
@@ -460,6 +461,41 @@
     if (offset > 0) map.panBy([0, offset], { animate: false });
   }
 
+  // The planner sheet is the taller of the two and the trip tab has no way to
+  // close it, so collapsing is the only route to a full-screen map here -- which
+  // is also why this one remembers: someone who pushed it down to follow a route
+  // should not have to push it down again on the next tab switch or reload.
+  var TRIP_PEEK_DEFAULT = "תכנון נסיעה";
+  var tripHeadline = null;
+
+  // Expanded, the numbers are already in the summary grid two rows down, so the
+  // rail just names the sheet. Collapsed, it is the only thing left of the plan.
+  function renderTripPeek(collapsed) {
+    tripPeekEl.textContent = (collapsed && tripHeadline) ? tripHeadline : TRIP_PEEK_DEFAULT;
+  }
+
+  var tripSheet = EVMap.makeCollapsibleSheet({
+    panel: tripPanel,
+    handle: $("trip-panel-handle"),
+    content: $("trip-panel-inner"),
+    peekEl: $("trip-peek"),
+    labelExpanded: "כיווץ לוח תכנון הנסיעה",
+    labelCollapsed: "פתיחת לוח תכנון הנסיעה",
+    storageKey: "ev-trip-sheet-collapsed-v1",
+    onToggle: renderTripPeek,
+    onSettled: function () {
+      map.invalidateSize();
+      // The strip of map left over just changed size, so the route is framed
+      // again into whatever is now visible.
+      if (tripLayer.getBounds().isValid()) fitTripBounds();
+    },
+  });
+
+  function setTripHeadline(text) {
+    tripHeadline = text;
+    renderTripPeek(tripSheet.isCollapsed());
+  }
+
   function buildStopPopupHtml(s, index, distanceFromStartKm) {
     var wazeUrl = "https://waze.com/ul?ll=" + s.lat + "," + s.lng + "&navigate=yes";
     var gmapUrl = "https://www.google.com/maps/dir/?api=1&destination=" + s.lat + "," + s.lng;
@@ -522,6 +558,11 @@
     }
 
     summaryEl.classList.remove("hidden");
+
+    var stopsText = plan.stops.length === 0 ? "ללא עצירות טעינה"
+      : plan.stops.length === 1 ? "עצירת טעינה אחת"
+      : plan.stops.length + " עצירות טעינה";
+    setTripHeadline(Math.round(plan.totalDistanceKm).toLocaleString("he-IL") + ' ק"מ · ' + stopsText);
   }
 
   function makeWarning(text) {
@@ -567,6 +608,7 @@
     setStatus("מחשב מסלול ועצירות טעינה&hellip;");
     summaryEl.classList.add("hidden");
     stopsListEl.innerHTML = "";
+    setTripHeadline(null);
 
     fetchOsrmRoute(tripState.origin, tripState.destination)
       .catch(function () { return straightLineRoute(tripState.origin, tripState.destination); })
@@ -675,4 +717,53 @@
     if (!savedPanel.classList.contains("hidden")) savedPanel.classList.add("hidden");
     else if (pickTarget) cancelPick();
   });
+
+  // ---------- deep link from the bot ----------
+
+  // In "interactive" map format the bot does not render a route image; it hands
+  // the trip over to this page as
+  // ?from_lat=&from_lng=&to_lat=&to_lng=, which opens the planner tab already
+  // filled in and calculates on load. A partial or out-of-range set of
+  // parameters is ignored, and the page opens on the station map as usual.
+  function readParamPoint(params, latKey, lngKey) {
+    var lat = parseFloat(params.get(latKey));
+    var lng = parseFloat(params.get(lngKey));
+    if (!isFinite(lat) || !isFinite(lng)) return null;
+    if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
+    return { lat: lat, lng: lng, label: lat.toFixed(4) + ", " + lng.toFixed(4) };
+  }
+
+  function applyDeepLink() {
+    var params = new URLSearchParams(window.location.search);
+    var origin = readParamPoint(params, "from_lat", "from_lng");
+    var destination = readParamPoint(params, "to_lat", "to_lng");
+    if (!origin || !destination) return;
+
+    showTripTab();
+    tripState.origin = origin;
+    tripState.destination = destination;
+    originField.setPoint(origin);
+    destField.setPoint(destination);
+
+    // Place names are cosmetic here -- the plan is built from the coordinates --
+    // so the lookups run alongside the calculation and rewrite their field
+    // whenever they land. They are chained rather than fired together because
+    // Nominatim's usage policy is one request per second and it drops the
+    // second of a parallel pair.
+    function nameField(point, field) {
+      return reverseGeocode(point.lat, point.lng).then(function (label) {
+        if (!label) return;
+        point.label = label;
+        field.setPoint(point);
+      }).catch(function () { /* the coordinates stay in the field */ });
+    }
+
+    nameField(origin, originField).then(function () { return nameField(destination, destField); });
+
+    // Stops cannot be picked before stations.json is in memory, and the button
+    // already owns the whole calculate-render-frame sequence (incl. fitTripBounds).
+    EVMap.whenStationsReady(function () { calcBtn.click(); });
+  }
+
+  applyDeepLink();
 })();
