@@ -42,8 +42,10 @@ async def main():
 
     # 6. Register handlers
     start.register_handlers(client)
-    location.register_handlers(client)
+    # trip נרשם לפני location: הפילטרים נבדקים לפי סדר הרישום, וכך הודעה שכבר לא
+    # שייכת לזרימת נסיעה (זרימה שפגה) נופלת חזרה ל-handler החיפוש הרגיל.
     trip.register_handlers(client)
+    location.register_handlers(client)
     settings_handler.register_handlers(client)
     callbacks.register_handlers(client)
     admin.register_handlers(client)

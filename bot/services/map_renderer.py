@@ -42,6 +42,18 @@ MARKER_OUTLINE = (255, 255, 255)
 PIN_RED = (220, 40, 40)
 PIN_RED_DARK = (170, 20, 20)
 BOLT_YELLOW = (255, 214, 51)
+PIN_DEST = (34, 48, 63)
+PIN_DEST_DARK = (18, 27, 38)
+ROUTE_BLUE = (31, 95, 208)
+
+# תיבה מינימלית למפת מסלול (במעלות), כדי שנסיעה קצרה מאוד לא תיתן זום קיצוני.
+TRIP_MIN_SPAN_DEG = 0.02
+TRIP_BBOX_PADDING_RATIO = 0.12
+# רוב הנסיעות הארוכות בארץ הן צפון-דרום. בתמונה רחבה כזו המסלול מצטמצם לרצועה
+# דקה באמצע, אז גודל התמונה נבחר לפי כיוון המסלול עצמו.
+TRIP_PORTRAIT_SIZE = (1000, 1400)
+TRIP_LANDSCAPE_SIZE = (1600, 1100)
+TRIP_SQUARE_SIZE = (1280, 1280)
 
 # ===== Geoapify Static Maps (ספק איכותי יותר, אופציונלי) =====
 # כשיש מפתח חינמי (MAP_PROVIDER_KEY ב-.env), משתמשים ב-Geoapify: אריחי osm-carto
@@ -56,6 +68,8 @@ GEOAPIFY_MAX_RETRIES = 2   # ניסיון ראשון + retry אחד
 GEOAPIFY_RETRY_DELAY_SEC = 1.5
 GEOAPIFY_USER_COLOR = "#dc2828"
 GEOAPIFY_STATION_COLOR = "#1eaa5a"
+GEOAPIFY_DESTINATION_COLOR = "#22303f"
+GEOAPIFY_ROUTE_COLOR = "#1f5fd0"
 
 
 def _deg_to_pixel(lat: float, lng: float, zoom: int) -> tuple[float, float]:
@@ -193,7 +207,14 @@ def _pixel_bbox_at_zoom(lat_min: float, lon_min: float, lat_max: float, lon_max:
     return px_min, py_min, px_max, py_max
 
 
-def _continuous_zoom(lat_min: float, lon_min: float, lat_max: float, lon_max: float) -> float:
+def _continuous_zoom(
+    lat_min: float,
+    lon_min: float,
+    lat_max: float,
+    lon_max: float,
+    width: int = OUTPUT_WIDTH,
+    height: int = OUTPUT_HEIGHT,
+) -> float:
     """זום 'רציף' (לא שלם) שבו התיבה התוחמת ממלאת בדיוק את מימדי הפלט.
 
     אריחי OSM זמינים רק בזום שלם, ולכן זהו רק שלב ביניים: _render_map_sync
@@ -203,7 +224,7 @@ def _continuous_zoom(lat_min: float, lon_min: float, lat_max: float, lon_max: fl
     px_min0, py_min0, px_max0, py_max0 = _pixel_bbox_at_zoom(lat_min, lon_min, lat_max, lon_max, 0)
     width0 = max(px_max0 - px_min0, 1e-9)
     height0 = max(py_max0 - py_min0, 1e-9)
-    zoom = min(math.log2(OUTPUT_WIDTH / width0), math.log2(OUTPUT_HEIGHT / height0))
+    zoom = min(math.log2(width / width0), math.log2(height / height0))
     return max(MIN_ZOOM, min(MAX_ZOOM, zoom))
 
 
@@ -223,7 +244,15 @@ def _fetch_tile(session: requests.Session, zoom: int, x: int, y: int, n_tiles: i
         return None
 
 
-def _draw_user_pin(draw: ImageDraw.ImageDraw, px: float, py: float, radius: int = 18, tail: int = 22) -> None:
+def _draw_user_pin(
+    draw: ImageDraw.ImageDraw,
+    px: float,
+    py: float,
+    radius: int = 18,
+    tail: int = 22,
+    fill=PIN_RED,
+    tail_fill=PIN_RED_DARK,
+) -> None:
     """סיכת מיקום קלאסית (עיגול + זנב משולש) עם החוד בדיוק על הקואורדינטה של המשתמש.
 
     ראש המשולש חופף לתחתית העיגול בכוונה (כדי שיתמזג חלק אליו), ורק הזנב שמתחת
@@ -235,11 +264,11 @@ def _draw_user_pin(draw: ImageDraw.ImageDraw, px: float, py: float, radius: int 
             (px + radius * 0.45, head_cy + radius * 0.3),
             (px, py),
         ],
-        fill=PIN_RED_DARK,
+        fill=tail_fill,
     )
     draw.ellipse(
         [px - radius, head_cy - radius, px + radius, head_cy + radius],
-        fill=PIN_RED,
+        fill=fill,
         outline=MARKER_OUTLINE,
         width=3,
     )
@@ -314,23 +343,29 @@ def _load_font(size: int) -> ImageFont.FreeTypeFont:
     return ImageFont.load_default()
 
 
-def _render_map_sync(user_lat: float, user_lng: float, radius_km: float, stations: list[dict]) -> Optional[str]:
-    stations = _select_map_stations(stations, user_lat, user_lng, MAX_MAP_STATIONS)
-    lat_min, lon_min, lat_max, lon_max = _bbox(user_lat, user_lng, radius_km, stations)
-    clusters = _cluster_stations(stations, lat_min, lon_min, lat_max, lon_max)
+def _build_basemap(
+    lat_min: float,
+    lon_min: float,
+    lat_max: float,
+    lon_max: float,
+    width: int = OUTPUT_WIDTH,
+    height: int = OUTPUT_HEIGHT,
+):
+    """מוריד אריחי OSM לתיבה נתונה ומחזיר (תמונת פלט בגודל מלא, המרת lat/lng לפיקסל).
 
-    # אריחי OSM קיימים רק בזום שלם, אז מורידים אריחים בזום השלם הקרוב ביותר
-    # שעדיין נותן רזולוציה מספקת (ceil), ואז מכווצים בדיוק לגודל הפלט -
-    # כדי לקבל התאמה חלקה לרדיוס החיפוש בלי "קפיצות" גסות של רמת זום.
-    z_cont = _continuous_zoom(lat_min, lon_min, lat_max, lon_max)
+    אריחי OSM קיימים רק בזום שלם, אז מורידים אריחים בזום השלם הקרוב ביותר שעדיין
+    נותן רזולוציה מספקת (ceil), ואז מכווצים בדיוק לגודל הפלט - כך מקבלים התאמה
+    חלקה לתיבה המבוקשת בלי "קפיצות" גסות של רמת זום.
+    """
+    z_cont = _continuous_zoom(lat_min, lon_min, lat_max, lon_max, width, height)
     zoom = min(MAX_ZOOM, math.ceil(z_cont))
     n_tiles = 2**zoom
     resize_factor = 2 ** (zoom - z_cont)  # >= 1
 
     px_min, py_min, px_max, py_max = _pixel_bbox_at_zoom(lat_min, lon_min, lat_max, lon_max, zoom)
     cx, cy = (px_min + px_max) / 2, (py_min + py_max) / 2
-    window_w = OUTPUT_WIDTH * resize_factor
-    window_h = OUTPUT_HEIGHT * resize_factor
+    window_w = width * resize_factor
+    window_h = height * resize_factor
     crop_left = cx - window_w / 2
     crop_top = cy - window_h / 2
     crop_right = crop_left + window_w
@@ -360,17 +395,50 @@ def _render_map_sync(user_lat: float, user_lng: float, radius_km: float, station
         int(round(canvas_crop_left)) + int(round(window_w)),
         int(round(canvas_crop_top)) + int(round(window_h)),
     ))
-    final = cropped.resize((OUTPUT_WIDTH, OUTPUT_HEIGHT), Image.LANCZOS)
-    scale_x = OUTPUT_WIDTH / window_w
-    scale_y = OUTPUT_HEIGHT / window_h
-
-    draw = ImageDraw.Draw(final)
-    font = _load_font(22)
-    cluster_font = _load_font(18)
+    final = cropped.resize((width, height), Image.LANCZOS)
+    scale_x = width / window_w
+    scale_y = height / window_h
 
     def to_final_px(lat: float, lng: float) -> tuple[float, float]:
         px, py = _deg_to_pixel(lat, lng, zoom)
         return (px - crop_left) * scale_x, (py - crop_top) * scale_y
+
+    return final, to_final_px
+
+
+def _draw_attribution(
+    draw: ImageDraw.ImageDraw,
+    font: ImageFont.FreeTypeFont,
+    width: int = OUTPUT_WIDTH,
+    height: int = OUTPUT_HEIGHT,
+) -> None:
+    attribution = "© OpenStreetMap contributors"
+    attr_bbox = draw.textbbox((0, 0), attribution, font=font)
+    attr_w, attr_h = attr_bbox[2] - attr_bbox[0], attr_bbox[3] - attr_bbox[1]
+    pad = 8
+    draw.rectangle(
+        [width - attr_w - 2 * pad, height - attr_h - 2 * pad, width, height],
+        fill=(255, 255, 255, 180),
+    )
+    draw.text((width - attr_w - pad, height - attr_h - pad), attribution, fill=(60, 60, 60), font=font)
+
+
+def _save_png(image: Image.Image) -> str:
+    fd, path = tempfile.mkstemp(prefix="ev_map_", suffix=".png")
+    os.close(fd)
+    image.save(path, "PNG")
+    return path
+
+
+def _render_map_sync(user_lat: float, user_lng: float, radius_km: float, stations: list[dict]) -> Optional[str]:
+    stations = _select_map_stations(stations, user_lat, user_lng, MAX_MAP_STATIONS)
+    lat_min, lon_min, lat_max, lon_max = _bbox(user_lat, user_lng, radius_km, stations)
+    clusters = _cluster_stations(stations, lat_min, lon_min, lat_max, lon_max)
+
+    final, to_final_px = _build_basemap(lat_min, lon_min, lat_max, lon_max)
+    draw = ImageDraw.Draw(final)
+    font = _load_font(22)
+    cluster_font = _load_font(18)
 
     for c in clusters:
         fx, fy = to_final_px(c["lat"], c["lng"])
@@ -382,20 +450,8 @@ def _render_map_sync(user_lat: float, user_lng: float, radius_km: float, station
     ux, uy = to_final_px(user_lat, user_lng)
     _draw_user_pin(draw, ux, uy, radius=18, tail=22)
 
-    attribution = "© OpenStreetMap contributors"
-    attr_bbox = draw.textbbox((0, 0), attribution, font=font)
-    attr_w, attr_h = attr_bbox[2] - attr_bbox[0], attr_bbox[3] - attr_bbox[1]
-    pad = 8
-    draw.rectangle(
-        [OUTPUT_WIDTH - attr_w - 2 * pad, OUTPUT_HEIGHT - attr_h - 2 * pad, OUTPUT_WIDTH, OUTPUT_HEIGHT],
-        fill=(255, 255, 255, 180),
-    )
-    draw.text((OUTPUT_WIDTH - attr_w - pad, OUTPUT_HEIGHT - attr_h - pad), attribution, fill=(60, 60, 60), font=font)
-
-    fd, path = tempfile.mkstemp(prefix="ev_map_", suffix=".png")
-    os.close(fd)
-    final.save(path, "PNG")
-    return path
+    _draw_attribution(draw, font)
+    return _save_png(final)
 
 
 def _geoapify_marker_param(
@@ -405,7 +461,7 @@ def _geoapify_marker_param(
     icon: Optional[str] = None,
     text: Optional[str] = None,
     color: str,
-    size: int,
+    size,
 ) -> str:
     parts = [f"lonlat:{lng},{lat}", "type:awesome", f"color:{color}"]
     if text:
@@ -453,7 +509,11 @@ def _render_map_geoapify_sync(
         "format": "png",
     }
     url = f"{GEOAPIFY_STATIC_URL}?{urlencode(params)}&" + "&".join(f"marker={m}" for m in markers)
+    return _fetch_geoapify_png(url)
 
+
+def _fetch_geoapify_png(url: str) -> Optional[str]:
+    """מוריד תמונת PNG מ-Geoapify עם retry, ומחזיר נתיב לקובץ זמני (או None בכשלון)."""
     t_start = time.time()
     for attempt in range(1, GEOAPIFY_MAX_RETRIES + 1):
         req_start = time.time()
@@ -469,9 +529,7 @@ def _render_map_geoapify_sync(
                 raise ValueError(f"unexpected content-type from Geoapify: {content_type!r}")
             img = Image.open(BytesIO(resp.content))
             img.load()  # מכריח דקודינג מיידי כדי לתפוס תוכן פגום/חלקי כאן ולא בהמשך
-            fd, path = tempfile.mkstemp(prefix="ev_map_", suffix=".png")
-            os.close(fd)
-            img.convert("RGB").save(path, "PNG")
+            path = _save_png(img.convert("RGB"))
             total_elapsed = time.time() - t_start
             logger.info(
                 "Geoapify static map rendered successfully in %.2fs (request: %.2fs, attempt: %d/%d)",
@@ -505,6 +563,181 @@ def _render_map_geoapify_sync(
                 return None
 
 
+def _route_spans(points: list[tuple[float, float]]) -> tuple[float, float, float, float, float]:
+    """מרכז המסלול והמרחקים שהוא תופס. ציר האורך מומר ליחידות של ציר הרוחב
+    (מעלת אורך מתכווצת עם קו הרוחב) כדי שאפשר יהיה להשוות בין הצירים."""
+    lats = [p[0] for p in points]
+    lngs = [p[1] for p in points]
+    center_lat = (min(lats) + max(lats)) / 2
+    center_lng = (min(lngs) + max(lngs)) / 2
+    lat_span = max(max(lats) - min(lats), TRIP_MIN_SPAN_DEG)
+    lon_span = max(max(lngs) - min(lngs), TRIP_MIN_SPAN_DEG)
+    lon_scale = math.cos(math.radians(center_lat)) or 1.0
+    return center_lat, center_lng, lat_span, lon_span, lon_scale
+
+
+def _trip_canvas_size(points: list[tuple[float, float]]) -> tuple[int, int]:
+    """גודל התמונה לפי כיוון המסלול: מסלול צפון-דרום מקבל תמונה לאורך."""
+    _, _, lat_span, lon_span, lon_scale = _route_spans(points)
+    ratio = (lon_span * lon_scale) / lat_span
+    if ratio < 0.7:
+        return TRIP_PORTRAIT_SIZE
+    if ratio > 1.4:
+        return TRIP_LANDSCAPE_SIZE
+    return TRIP_SQUARE_SIZE
+
+
+def _route_bbox(points: list[tuple[float, float]], width: int, height: int) -> tuple[float, float, float, float]:
+    """תיבה תוחמת לכל נקודות המסלול, מתוחה ליחס התמונה ועם שוליים מסביב.
+
+    בלי המתיחה ליחס, המסלול היה נצמד לשוליים בציר אחד ומצטמצם לרצועה דקה בשני.
+    """
+    center_lat, center_lng, lat_span, lon_span, lon_scale = _route_spans(points)
+
+    aspect = width / height
+    if (lon_span * lon_scale) / lat_span < aspect:
+        lon_span = lat_span * aspect / lon_scale
+    else:
+        lat_span = lon_span * lon_scale / aspect
+
+    lat_pad = lat_span * TRIP_BBOX_PADDING_RATIO
+    lon_pad = lon_span * TRIP_BBOX_PADDING_RATIO
+    return (
+        center_lat - lat_span / 2 - lat_pad,
+        center_lng - lon_span / 2 - lon_pad,
+        center_lat + lat_span / 2 + lat_pad,
+        center_lng + lon_span / 2 + lon_pad,
+    )
+
+
+def _draw_stop_marker(
+    draw: ImageDraw.ImageDraw,
+    px: float,
+    py: float,
+    number: int,
+    radius: int = 22,
+    font: Optional[ImageFont.FreeTypeFont] = None,
+) -> None:
+    """עצירת טעינה ממוספרת: עיגול ירוק עם מספר העצירה, בסדר הנסיעה."""
+    draw.ellipse(
+        [px - radius, py - radius, px + radius, py + radius],
+        fill=STATION_MARKER_COLOR,
+        outline=MARKER_OUTLINE,
+        width=4,
+    )
+    if font is None:
+        return
+    text = str(number)
+    bbox = draw.textbbox((0, 0), text, font=font)
+    tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+    draw.text((px - tw / 2 - bbox[0], py - th / 2 - bbox[1]), text, fill=MARKER_OUTLINE, font=font)
+
+
+def _render_trip_map_sync(
+    origin: tuple[float, float],
+    destination: tuple[float, float],
+    stops: list[tuple[float, float]],
+) -> Optional[str]:
+    points = [origin, *stops, destination]
+    width, height = _trip_canvas_size(points)
+    lat_min, lon_min, lat_max, lon_max = _route_bbox(points, width, height)
+    final, to_final_px = _build_basemap(lat_min, lon_min, lat_max, lon_max, width, height)
+
+    draw = ImageDraw.Draw(final)
+    font = _load_font(22)
+    stop_font = _load_font(28)
+
+    line = [to_final_px(lat, lng) for lat, lng in points]
+    # מעטפת לבנה מתחת לקו המסלול כדי שיישאר קריא גם מעל כבישים כהים.
+    draw.line(line, fill=MARKER_OUTLINE, width=11, joint="curve")
+    draw.line(line, fill=ROUTE_BLUE, width=6, joint="curve")
+
+    for i, (lat, lng) in enumerate(stops, start=1):
+        sx, sy = to_final_px(lat, lng)
+        _draw_stop_marker(draw, sx, sy, i, font=stop_font)
+
+    dx, dy = to_final_px(*destination)
+    _draw_user_pin(draw, dx, dy, radius=18, tail=22, fill=PIN_DEST, tail_fill=PIN_DEST_DARK)
+    ox, oy = to_final_px(*origin)
+    _draw_user_pin(draw, ox, oy, radius=18, tail=22)
+
+    _draw_attribution(draw, font, width, height)
+    return _save_png(final)
+
+
+def _render_trip_map_geoapify_sync(
+    origin: tuple[float, float],
+    destination: tuple[float, float],
+    stops: list[tuple[float, float]],
+    api_key: str,
+) -> Optional[str]:
+    """מפת מסלול דרך Geoapify: קו בין הנקודות, סיכות מוצא/יעד וסמן ממוספר לכל עצירה."""
+    points = [origin, *stops, destination]
+    width, height = _trip_canvas_size(points)
+    lat_min, lon_min, lat_max, lon_max = _route_bbox(points, width, height)
+
+    # רק ב-size:x-large המספר בתוך הסמן יוצא קריא; גדלים מספריים מקטינים את הטקסט.
+    markers = [
+        _geoapify_marker_param(lat, lng, text=str(i), color=GEOAPIFY_STATION_COLOR, size="x-large")
+        for i, (lat, lng) in enumerate(stops, start=1)
+    ]
+    markers.append(
+        _geoapify_marker_param(*destination, icon="flag", color=GEOAPIFY_DESTINATION_COLOR, size="x-large")
+    )
+    # המוצא אחרון כדי שייצייר מעל השאר אם נקודות חופפות.
+    markers.append(
+        _geoapify_marker_param(*origin, icon="map-marker-alt", color=GEOAPIFY_USER_COLOR, size="x-large")
+    )
+
+    polyline = ",".join(f"{lng},{lat}" for lat, lng in points)
+    # ה-# של צבע הקו חייב להיות מקודד (%23), אחרת הוא נחשב לתחילת fragment וה-URL נחתך.
+    geometry = quote(
+        f"polyline:{polyline};linecolor:{GEOAPIFY_ROUTE_COLOR};linewidth:6;lineopacity:0.9",
+        safe=":;,",
+    )
+
+    params = {
+        "apiKey": api_key,
+        "style": GEOAPIFY_STYLE,
+        "lang": GEOAPIFY_LANG,
+        "width": width,
+        "height": height,
+        "area": f"rect:{lon_min},{lat_max},{lon_max},{lat_min}",
+        "format": "png",
+    }
+    url = (
+        f"{GEOAPIFY_STATIC_URL}?{urlencode(params)}"
+        f"&geometry={geometry}&" + "&".join(f"marker={m}" for m in markers)
+    )
+    return _fetch_geoapify_png(url)
+
+
+async def _record_map_metric(event_name: str, success: bool = True) -> None:
+    """מדד תפעולי בלבד - כשלון ברישום שלו לא אמור להפיל שליחת מפה למשתמש."""
+    try:
+        await record_map_event(event_name, success=success, db_path=settings.users_db_path)
+    except Exception:
+        pass
+
+
+async def _render_with_fallback(geoapify_render, osm_render) -> Optional[str]:
+    """מריץ קודם את Geoapify (אם הוגדר מפתח) ונופל לרינדור OSM+PIL המקומי."""
+    api_key = settings.map_provider_key.strip()
+    if api_key:
+        path = await asyncio.to_thread(geoapify_render, api_key)
+        if path is not None:
+            await _record_map_metric("geoapify")
+            return path
+        await _record_map_metric("osm_fallback")
+    else:
+        await _record_map_metric("osm")
+
+    path = await asyncio.to_thread(osm_render)
+    if path is None:
+        await _record_map_metric("failed", success=False)
+    return path
+
+
 async def render_map(user_lat: float, user_lng: float, radius_km: float, stations: list[dict]) -> Optional[str]:
     """מרנדר מפה עם מיקום הנהג (סיכה אדומה) ועמדות הטעינה (סמל ברק).
 
@@ -518,37 +751,32 @@ async def render_map(user_lat: float, user_lng: float, radius_km: float, station
     """
     try:
         filtered_stations = _select_map_stations(stations, user_lat, user_lng, MAX_MAP_STATIONS)
-        api_key = settings.map_provider_key.strip()
-        if api_key:
-            path = await asyncio.to_thread(_render_map_geoapify_sync, user_lat, user_lng, radius_km, filtered_stations, api_key)
-            if path is not None:
-                try:
-                    await record_map_event("geoapify", success=True, db_path=settings.users_db_path)
-                except Exception:
-                    pass
-                return path
-            else:
-                try:
-                    await record_map_event("osm_fallback", success=True, db_path=settings.users_db_path)
-                except Exception:
-                    pass
-        else:
-            try:
-                await record_map_event("osm", success=True, db_path=settings.users_db_path)
-            except Exception:
-                pass
-
-        osm_path = await asyncio.to_thread(_render_map_sync, user_lat, user_lng, radius_km, filtered_stations)
-        if osm_path is None:
-            try:
-                await record_map_event("failed", success=False, db_path=settings.users_db_path)
-            except Exception:
-                pass
-        return osm_path
+        return await _render_with_fallback(
+            lambda key: _render_map_geoapify_sync(user_lat, user_lng, radius_km, filtered_stations, key),
+            lambda: _render_map_sync(user_lat, user_lng, radius_km, filtered_stations),
+        )
     except Exception:
         logger.exception("failed to render map for lat=%.4f lng=%.4f radius=%s", user_lat, user_lng, radius_km)
-        try:
-            await record_map_event("failed", success=False, db_path=settings.users_db_path)
-        except Exception:
-            pass
+        await _record_map_metric("failed", success=False)
+        return None
+
+
+async def render_trip_map(
+    origin: tuple[float, float],
+    destination: tuple[float, float],
+    stops: list[tuple[float, float]],
+) -> Optional[str]:
+    """מפת מסלול לתוכנית נסיעה: מוצא, יעד, וכל עצירת טעינה ממוספרת לפי סדר הנסיעה.
+
+    המספור על המפה תואם למספור בתקציר התוכנית, כדי שמבט אחד על התמונה יראה את כל
+    הנסיעה. מחזיר נתיב ל-PNG זמני, או None אם הרינדור נכשל (אז שולחים רק טקסט).
+    """
+    try:
+        return await _render_with_fallback(
+            lambda key: _render_trip_map_geoapify_sync(origin, destination, stops, key),
+            lambda: _render_trip_map_sync(origin, destination, stops),
+        )
+    except Exception:
+        logger.exception("failed to render trip map origin=%s destination=%s stops=%d", origin, destination, len(stops))
+        await _record_map_metric("failed", success=False)
         return None

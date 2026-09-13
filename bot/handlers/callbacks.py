@@ -74,6 +74,11 @@ def register_handlers(client: TelegramClient) -> None:
                     await event.edit(LOCATION_PROMPT_MESSAGE, buttons=welcome_keyboard(is_private=event.is_private), parse_mode="html")
 
             elif action == "new_search":
+                # יציאה מזרימת נסיעה בדרך הזו חייבת לנקות את ה-state, אחרת כל חיפוש
+                # טקסטואלי ימשיך להיבלע בחזרה לתוך הזרימה.
+                session.trip_state = None
+                session.trip_destination = None
+                session.trip_origin = None
                 await event.edit(LOCATION_PROMPT_MESSAGE, buttons=welcome_keyboard(is_private=event.is_private), parse_mode="html")
 
             elif action == "back_to_welcome":

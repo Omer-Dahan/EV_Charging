@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 from telethon.errors import MessageNotModifiedError
 
 from bot.handlers.trip import _show_trip_step
-from bot.states import UserSession
+from bot.states import UserSession, user_states
 from bot.storage.users_db import (
     cleanup_old_trip_plans,
     get_recent_trip_plans,
@@ -159,6 +159,32 @@ class TestCleanupOldTripPlans(unittest.IsolatedAsyncioTestCase):
         deleted = await cleanup_old_trip_plans(self.users_db_path, days=30)
         self.assertEqual(deleted, 0)
 
+    async def test_retention_boundary_is_thirty_days(self):
+        self._insert_with_age(3, 29, "יום 29")
+        self._insert_with_age(3, 31, "יום 31")
+
+        deleted = await cleanup_old_trip_plans(self.users_db_path, days=30)
+
+        self.assertEqual(deleted, 1)
+        remaining = await get_recent_trip_plans(3, self.users_db_path, limit=10)
+        self.assertEqual([p["destination_name"] for p in remaining], ["יום 29"])
+
+    async def test_plan_survives_losing_all_in_memory_state(self):
+        """הדרישה היא שתוכנית תיפתח שוב גם אחרי restart של הבוט."""
+        plan_id = await save_trip_plan(
+            chat_id=321,
+            origin={"lat": 32.0, "lng": 34.7, "name": "תל אביב"},
+            destination={"lat": 29.5, "lng": 34.9, "name": "אילת"},
+            battery_percent=80.0,
+            plan=SAMPLE_PLAN,
+            db_path=self.users_db_path,
+        )
+        user_states.clear()
+
+        row = await get_trip_plan(plan_id, 321, self.users_db_path)
+        self.assertEqual(row["destination_name"], "אילת")
+        self.assertEqual(row["plan"]["num_stops"], 1)
+
 
 class TestShowTripStep(unittest.IsolatedAsyncioTestCase):
     def _make_event(self):
@@ -198,8 +224,11 @@ class TestShowTripStep(unittest.IsolatedAsyncioTestCase):
         session = UserSession()
         session.trip_message_id = 10
 
-        await _show_trip_step(event, chat_id=1, session=session, text="שלב הבא")
+        with self.assertLogs("bot.handlers.trip", level="WARNING") as logs:
+            await _show_trip_step(event, chat_id=1, session=session, text="שלב הבא")
 
+        # בלי הלוג הזה כשל עריכה נבלע בשקט, וההודעה הנוספת בצ'אט נשארת בלי הסבר.
+        self.assertIn("MESSAGE_ID_INVALID", "".join(logs.output))
         event.client.edit_message.assert_called_once()
         event.respond.assert_called_once()
         self.assertEqual(session.trip_message_id, 99)

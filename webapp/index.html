@@ -15,6 +15,17 @@
 <body>
 
 <div id="app">
+  <nav id="mode-tabs" role="tablist" aria-label="מצב תצוגה">
+    <button type="button" class="mode-tab is-active" id="tab-map" role="tab" aria-selected="true" aria-controls="toolbar">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.106 5.553a2 2 0 0 0 1.788 0l3.659-1.83A1 1 0 0 1 21 4.619v12.764a1 1 0 0 1-.553.894l-4.553 2.277a2 2 0 0 1-1.788 0l-4.212-2.106a2 2 0 0 0-1.788 0l-3.659 1.83A1 1 0 0 1 3 19.381V6.618a1 1 0 0 1 .553-.894l4.553-2.277a2 2 0 0 1 1.788 0z"/><path d="M15 5.764v15"/><path d="M9 3.236v15"/></svg>
+      <span>מפה</span>
+    </button>
+    <button type="button" class="mode-tab" id="tab-trip" role="tab" aria-selected="false" aria-controls="trip-panel">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M8 6.5h6a4 4 0 0 1 4 4v0a4 4 0 0 1-4 4H8"/></svg>
+      <span>תכנון נסיעה</span>
+    </button>
+  </nav>
+
   <header id="toolbar">
     <div id="count-line"><span id="count">טוען עמדות&hellip;</span></div>
 
@@ -77,10 +88,105 @@
     </div>
     <div id="list-items"></div>
   </div>
+
+  <div id="map-pick-banner" class="hidden">
+    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="7"/><path d="M12 2v3"/><path d="M12 19v3"/><path d="M2 12h3"/><path d="M19 12h3"/></svg>
+    <span id="map-pick-text">לחצו על המפה לבחירת מוצא</span>
+    <button type="button" id="map-pick-cancel">ביטול</button>
+  </div>
+
+  <div id="trip-panel" class="hidden" role="tabpanel" aria-label="תכנון נסיעה">
+    <div id="trip-panel-handle"></div>
+    <div id="trip-panel-inner">
+
+      <div class="trip-points">
+        <div class="trip-point-row">
+          <span class="trip-point-dot trip-point-dot--origin" aria-hidden="true"></span>
+          <div class="trip-input-wrap">
+            <input type="text" id="trip-origin-input" placeholder="מוצא: עיר, כתובת&hellip;" autocomplete="off" aria-label="נקודת מוצא" />
+            <div class="trip-suggest hidden" id="trip-origin-suggest" role="listbox" aria-label="הצעות למוצא"></div>
+          </div>
+          <button type="button" class="trip-pick-btn" data-target="origin" aria-label="בחר מוצא על המפה">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="7"/><path d="M12 2v3"/><path d="M12 19v3"/><path d="M2 12h3"/><path d="M19 12h3"/></svg>
+          </button>
+        </div>
+
+        <button type="button" id="trip-swap-btn" aria-label="החלף מוצא ויעד">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="M16 21l4-4-4-4"/><path d="M20 17H4"/></svg>
+        </button>
+
+        <div class="trip-point-row">
+          <span class="trip-point-dot trip-point-dot--destination" aria-hidden="true"></span>
+          <div class="trip-input-wrap">
+            <input type="text" id="trip-dest-input" placeholder="יעד: עיר, כתובת&hellip;" autocomplete="off" aria-label="יעד" />
+            <div class="trip-suggest hidden" id="trip-dest-suggest" role="listbox" aria-label="הצעות ליעד"></div>
+          </div>
+          <button type="button" class="trip-pick-btn" data-target="destination" aria-label="בחר יעד על המפה">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="7"/><path d="M12 2v3"/><path d="M12 19v3"/><path d="M2 12h3"/><path d="M19 12h3"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="trip-battery-field">
+        <div class="trip-battery-head">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="7" width="17" height="10" rx="2"/><path d="M22 10.5v3"/><path d="M6 10v4"/></svg>
+          <label for="trip-battery-slider">אחוז סוללה נוכחי</label>
+          <output id="trip-battery-value" for="trip-battery-slider">80%</output>
+        </div>
+        <input type="range" id="trip-battery-slider" min="1" max="100" step="1" value="80" aria-label="אחוז סוללה נוכחי" />
+      </div>
+
+      <button type="button" id="trip-settings-toggle" aria-expanded="false" aria-controls="trip-settings">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h6"/><path d="M14 6h6"/><circle cx="11" cy="6" r="2"/><path d="M4 12h10"/><path d="M18 12h2"/><circle cx="16" cy="12" r="2"/><path d="M4 18h6"/><path d="M14 18h6"/><circle cx="11" cy="18" r="2"/></svg>
+        <span>הגדרות רכב</span>
+        <svg class="icon" id="trip-settings-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+      </button>
+
+      <div class="trip-settings hidden" id="trip-settings">
+        <label>טווח סוללה (ק"מ)<input type="number" id="trip-range" min="50" max="1000" step="10" inputmode="numeric" /></label>
+        <label>צריכה (kWh ל-100 ק"מ)<input type="number" id="trip-consumption" min="5" max="40" step="0.5" inputmode="decimal" /></label>
+        <label>מרווח ביטחון (%)<input type="number" id="trip-margin" min="0" max="50" step="5" inputmode="numeric" /></label>
+        <div class="trip-settings-note">הגדרות הרכב נשמרות. אחוז הסוללה נשאל בכל תכנון נסיעה בנפרד.</div>
+      </div>
+
+      <div class="trip-actions">
+        <button type="button" id="trip-calc-btn">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M8 6.5h6a4 4 0 0 1 4 4v0a4 4 0 0 1-4 4H8"/></svg>
+          <span>חשב מסלול</span>
+        </button>
+        <button type="button" id="trip-saved-btn" aria-haspopup="dialog">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4-7 4V4a1 1 0 0 1 1-1Z"/></svg>
+          <span>התוכניות שלי</span>
+        </button>
+      </div>
+
+      <div id="trip-status" class="hidden" role="status" aria-live="polite"></div>
+
+      <div id="trip-summary" class="hidden">
+        <div class="trip-summary-stats" id="trip-summary-stats"></div>
+        <button type="button" id="trip-fit-btn">הצג את כל המסלול</button>
+      </div>
+
+      <div id="trip-stops-list"></div>
+    </div>
+  </div>
+
+  <div id="saved-trips-panel" class="hidden" role="dialog" aria-label="התוכניות שלי">
+    <div id="saved-trips-header">
+      <span>התוכניות שלי</span>
+      <button type="button" id="saved-trips-close" aria-label="סגור">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+      </button>
+    </div>
+    <div id="saved-trips-list"></div>
+    <div id="saved-trips-empty" class="hidden">עדיין אין תוכניות שמורות</div>
+  </div>
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<script src="trip-logic.js"></script>
 <script src="app.js"></script>
+<script src="trip-ui.js"></script>
 </body>
 </html>

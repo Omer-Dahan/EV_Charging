@@ -11,7 +11,6 @@ from bot.keyboards.inline import (
     range_keyboard,
     settings_main_keyboard,
     speed_keyboard,
-    trip_battery_keyboard,
     trip_consumption_keyboard,
     trip_margin_keyboard,
     trip_power_keyboard,
@@ -21,9 +20,9 @@ from bot.keyboards.inline import (
     trip_settings_main_keyboard,
 )
 from bot.services.station_search import get_distinct_providers
+from bot.states import get_session
 from bot.services.trip_planner import (
     TRIP_CONSUMPTION_KWH_PER_100KM,
-    TRIP_DEFAULT_BATTERY_PERCENT,
     TRIP_DEFAULT_REAL_RANGE_KM,
     TRIP_DEFAULT_SAFETY_MARGIN_PERCENT,
     TRIP_PREFERRED_MIN_POWER_KW,
@@ -139,7 +138,6 @@ async def show_map_format(event: events.CallbackQuery.Event) -> None:
 TRIP_SETTINGS_TEMPLATE = (
     "🚗 <b>הגדרות מצב נסיעה</b>\n\n"
     '🔋 <b>טווח רכב אמיתי:</b> {range_km:.0f} ק"מ\n'
-    "🔌 <b>אחוז סוללה בהתחלה:</b> {battery_display}\n"
     "🛡️ <b>מרווח ביטחון:</b> {margin:.0f}%\n"
     "🔢 <b>צריכת חשמל:</b> {consumption:.0f} kWh/100 ק\"מ\n"
     "⚡ <b>הספק מינימלי מועדף:</b> {power:.0f}kW\n"
@@ -147,10 +145,6 @@ TRIP_SETTINGS_TEMPLATE = (
     "🏭 <b>מפעילים מועדפים:</b> {providers_display}\n\n"
     "בחר הגדרה לשינוי:"
 )
-
-
-def _trip_battery_display(value) -> str:
-    return "ישאל בכל תכנון" if value is None else f"{value:.0f}%"
 
 
 def _trip_providers_display(providers: list) -> str:
@@ -166,7 +160,6 @@ async def _render_trip_main_text(chat_id: int) -> str:
     user_settings = await get_user_settings(chat_id, app_settings.users_db_path)
     return TRIP_SETTINGS_TEMPLATE.format(
         range_km=user_settings.trip_real_range_km or TRIP_DEFAULT_REAL_RANGE_KM,
-        battery_display=_trip_battery_display(user_settings.trip_battery_percent),
         margin=user_settings.trip_safety_margin_percent or TRIP_DEFAULT_SAFETY_MARGIN_PERCENT,
         consumption=user_settings.trip_consumption_kwh_100km or TRIP_CONSUMPTION_KWH_PER_100KM,
         power=user_settings.trip_min_power_kw or TRIP_PREFERRED_MIN_POWER_KW,
@@ -175,10 +168,15 @@ async def _render_trip_main_text(chat_id: int) -> str:
     )
 
 
+def _trip_settings_keyboard(chat_id: int) -> list:
+    """כשמגיעים להגדרות מתוך תכנון פעיל, כפתור החזרה מחזיר לשלב שבו המשתמש היה."""
+    return trip_settings_main_keyboard(in_trip_flow=get_session(chat_id).trip_state is not None)
+
+
 async def show_trip_main(event: events.CallbackQuery.Event) -> None:
     chat_id = event.chat_id
     text = await _render_trip_main_text(chat_id)
-    await event.edit(text, buttons=trip_settings_main_keyboard(), parse_mode="html")
+    await event.edit(text, buttons=_trip_settings_keyboard(chat_id), parse_mode="html")
 
 
 async def show_trip_range(event: events.CallbackQuery.Event) -> None:
@@ -186,16 +184,6 @@ async def show_trip_range(event: events.CallbackQuery.Event) -> None:
     await event.edit(
         '🔋 בחר טווח נסיעה אמיתי של הרכב (לא הטווח המוצהר):',
         buttons=trip_range_keyboard(user_settings.trip_real_range_km or TRIP_DEFAULT_REAL_RANGE_KM),
-    )
-
-
-async def show_trip_battery(event: events.CallbackQuery.Event) -> None:
-    user_settings = await get_user_settings(event.chat_id, app_settings.users_db_path)
-    await event.edit(
-        "🔌 בחר אחוז סוללה שישמש כברירת מחדל בתחילת כל נסיעה:\n\n"
-        'ניתן גם לבחור "ישאל בכל תכנון" כדי להזין אחוז בכל פעם בנפרד.',
-        buttons=trip_battery_keyboard(user_settings.trip_battery_percent),
-        parse_mode="html",
     )
 
 
@@ -252,7 +240,7 @@ async def _save_and_return_to_trip(event: events.CallbackQuery.Event, **field) -
     await upsert_user(user_settings, app_settings.users_db_path)
     await event.answer(SAVED_TOAST, alert=False)
     text = await _render_trip_main_text(chat_id)
-    await event.edit(text, buttons=trip_settings_main_keyboard(), parse_mode="html")
+    await event.edit(text, buttons=_trip_settings_keyboard(chat_id), parse_mode="html")
 
 
 async def _save_and_return(event: events.CallbackQuery.Event, **field) -> None:
@@ -296,8 +284,6 @@ def register_handlers(client: TelegramClient) -> None:
                 await show_trip_main(event)
             elif data == "settings:trip:range":
                 await show_trip_range(event)
-            elif data == "settings:trip:battery":
-                await show_trip_battery(event)
             elif data == "settings:trip:margin":
                 await show_trip_margin(event)
             elif data == "settings:trip:consumption":
@@ -371,19 +357,6 @@ def register_handlers(client: TelegramClient) -> None:
                     await event.answer(ERROR_GENERIC, alert=True)
                     return
                 await _save_and_return_to_trip(event, trip_real_range_km=range_km)
-            elif filter_type == "tripbattery":
-                if value == "ASK":
-                    battery_percent = None
-                else:
-                    try:
-                        battery_percent = float(value)
-                    except ValueError:
-                        await event.answer(ERROR_GENERIC, alert=True)
-                        return
-                    if not (1.0 <= battery_percent <= 100.0):
-                        await event.answer(ERROR_GENERIC, alert=True)
-                        return
-                await _save_and_return_to_trip(event, trip_battery_percent=battery_percent)
             elif filter_type == "tripmargin":
                 try:
                     margin = float(value)

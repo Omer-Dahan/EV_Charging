@@ -134,32 +134,7 @@ def trip_geocode_selection_keyboard(candidates: list[dict]) -> list:
             btn_text = btn_text[:39] + "..."
         data = f"tripgeo:{i}:{lat:.5f}:{lng:.5f}".encode("utf-8")
         rows.append([Button.inline(btn_text, data=data)])
-    rows.append([Button.inline("❌ ביטול", data=b"nav:new_search")])
-    return rows
-
-
-def trip_battery_choice_keyboard(default_percent: float) -> list:
-    """מקלדת לבחירת אחוז סוללה בתחילת תכנון נסיעה, כשקיימת ברירת מחדל אישית שמורה."""
-    return [
-        [Button.inline(f"🔋 המשך עם {default_percent:.0f}% (ברירת מחדל)", data=b"tripbatt:default")],
-        [Button.inline("✏️ הזן אחוז אחר לנסיעה זו", data=b"tripbatt:custom")],
-    ]
-
-
-def trip_plan_keyboard(stops: list[dict]) -> list:
-    """מקלדת עם כפתור ניווט ב-Waze לכל עצירת טעינה בתוכנית הנסיעה."""
-    rows = []
-    for stop in stops:
-        station = stop["station"]
-        lat, lng = station["lat"], station["lng"]
-        idx = stop["segment_index"]
-        waze_url = f"https://waze.com/ul?ll={lat},{lng}&navigate=yes"
-        rows.append([Button.url(f"🚗 ניווט לעצירה {idx}", url=waze_url)])
-    rows.append([
-        Button.inline("🔄 חיפוש חדש", data=b"nav:new_search"),
-        Button.inline("⚙️ הגדרות נסיעה", data=b"settings:trip"),
-    ])
-    rows.append([Button.inline("🕘 התוכניות שלי", data=b"trip:myplans")])
+    rows.append([Button.inline("❌ ביטול", data=b"trip:cancel")])
     return rows
 
 
@@ -177,7 +152,7 @@ def trip_myplans_keyboard(plans: list[dict]) -> list:
             label = label[:39] + "..."
         rows.append([Button.inline(label, data=f"trip:plan:{p['id']}".encode("utf-8"))])
     rows.append([Button.inline("🚗 תכנון נסיעה חדשה", data=b"trip:new")])
-    rows.append([Button.inline("↩️ חזרה", data=b"nav:back_to_welcome")])
+    rows.append([Button.inline("↩️ חזרה", data=b"trip:cancel")])
     return rows
 
 
@@ -203,26 +178,28 @@ def settings_main_keyboard() -> list:
     ]
 
 
-def trip_settings_main_keyboard() -> list:
+def trip_settings_main_keyboard(in_trip_flow: bool = False) -> list:
+    """in_trip_flow: המשתמש נכנס להגדרות באמצע תכנון נסיעה, אז כפתור החזרה מחזיר
+    אותו לשלב שבו היה ולא למסך ההגדרות הכללי."""
+    back = (
+        Button.inline("↩️ חזרה לתכנון הנסיעה", data=b"trip:resume")
+        if in_trip_flow
+        else Button.inline("↩️ חזרה", data=b"settings:main")
+    )
     return [
         [
             Button.inline("🔋 טווח רכב אמיתי", data=b"settings:trip:range"),
-            Button.inline("🔌 אחוז סוללה", data=b"settings:trip:battery"),
-        ],
-        [
             Button.inline("🛡️ מרווח ביטחון", data=b"settings:trip:margin"),
+        ],
+        [
             Button.inline("🔢 צריכת חשמל", data=b"settings:trip:consumption"),
-        ],
-        [
             Button.inline("⚡ הספק מינימלי", data=b"settings:trip:power"),
-            Button.inline("💰 מחיר מקסימלי", data=b"settings:trip:price"),
         ],
         [
+            Button.inline("💰 מחיר מקסימלי", data=b"settings:trip:price"),
             Button.inline("🏭 מפעילים מועדפים", data=b"settings:trip:providers"),
         ],
-        [
-            Button.inline("↩️ חזרה", data=b"settings:main"),
-        ],
+        [back],
     ]
 
 
@@ -240,29 +217,6 @@ def trip_range_keyboard(current: float) -> list:
             Button.inline(mark(400.0, '400 ק"מ'), data=b"filter:triprange:400"),
             Button.inline(mark(450.0, '450 ק"מ'), data=b"filter:triprange:450"),
             Button.inline(mark(500.0, '500 ק"מ'), data=b"filter:triprange:500"),
-        ],
-        [
-            Button.inline("↩️ חזרה", data=b"settings:trip"),
-        ],
-    ]
-
-
-def trip_battery_keyboard(current: Optional[float]) -> list:
-    def mark(val: Optional[float], label: str) -> str:
-        return f"✅ {label}" if current == val else label
-
-    return [
-        [
-            Button.inline(mark(60.0, "60%"), data=b"filter:tripbattery:60"),
-            Button.inline(mark(70.0, "70%"), data=b"filter:tripbattery:70"),
-            Button.inline(mark(80.0, "80%"), data=b"filter:tripbattery:80"),
-        ],
-        [
-            Button.inline(mark(90.0, "90%"), data=b"filter:tripbattery:90"),
-            Button.inline(mark(100.0, "100%"), data=b"filter:tripbattery:100"),
-        ],
-        [
-            Button.inline(mark(None, "🔄 ישאל בכל תכנון"), data=b"filter:tripbattery:ASK"),
         ],
         [
             Button.inline("↩️ חזרה", data=b"settings:trip"),

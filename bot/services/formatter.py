@@ -124,16 +124,20 @@ def _relaxation_note(relaxation: Optional[dict], min_power_kw: Optional[float]) 
     return "⚠️ הועדפו הקלות בעצירה זו: " + ", ".join(eased) + "."
 
 
-def format_trip_plan(plan: dict, origin_name: str, dest_name: str) -> str:
-    """מעצב כרטיסיית תוכנית נסיעה (מרחק, זמן, עצירות טעינה) מתוך dict של trip_planner.plan_trip."""
-    total_km = plan["total_distance_km"]
-    straight_km = plan.get("straight_line_km", total_km)
-    hours = plan["duration_hours"]
+def format_duration(hours: float) -> str:
+    """שעות עשרוניות -> "3 שע׳ 36 דק׳" (מעוגל לדקה, בלי 60 דקות)."""
     h = int(hours)
     m = round((hours - h) * 60)
     if m == 60:
         h += 1
         m = 0
+    return f"{h} שע׳ {m} דק׳"
+
+
+def format_trip_plan(plan: dict, origin_name: str, dest_name: str) -> str:
+    """מעצב כרטיסיית תוכנית נסיעה (מרחק, זמן, עצירות טעינה) מתוך dict של trip_planner.plan_trip."""
+    total_km = plan["total_distance_km"]
+    straight_km = plan.get("straight_line_km", total_km)
     num_stops = plan["num_stops"]
     car = plan.get("car_params", {})
     available_range_km = plan.get("available_range_km")
@@ -145,7 +149,7 @@ def format_trip_plan(plan: dict, origin_name: str, dest_name: str) -> str:
         f"🏁 <b>אל:</b> {dest_name}",
         "",
         f'📏 מרחק כביש משוער: {total_km:.0f} ק"מ (קו אווירי: {straight_km:.0f} ק"מ)',
-        f"⏱️ זמן נסיעה משוער: {h} שע׳ {m} דק׳ (ללא זמני טעינה)",
+        f'⏱️ זמן נסיעה משוער: {format_duration(plan["duration_hours"])} (ללא זמני טעינה)',
         f"🔋 עצירות טעינה נדרשות: {num_stops}",
         "",
     ]

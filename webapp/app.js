@@ -25,6 +25,7 @@
     car: '<path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/>',
     map: '<path d="M14.106 5.553a2 2 0 0 0 1.788 0l3.659-1.83A1 1 0 0 1 21 4.619v12.764a1 1 0 0 1-.553.894l-4.553 2.277a2 2 0 0 1-1.788 0l-4.212-2.106a2 2 0 0 0-1.788 0l-3.659 1.83A1 1 0 0 1 3 19.381V6.618a1 1 0 0 1 .553-.894l4.553-2.277a2 2 0 0 1 1.788 0z"/><path d="M15 5.764v15"/><path d="M9 3.236v15"/>',
     check: '<path d="M20 6 9 17l-5-5"/>',
+    x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
   };
 
   function icon(name, cls) {
@@ -348,4 +349,16 @@
   document.getElementById("list-close").addEventListener("click", function () {
     document.getElementById("list-panel").classList.add("hidden");
   });
+
+  // Minimal read-only surface for trip-ui.js (kept as a separate, independent
+  // feature). It reuses the same map instance and station list rather than
+  // loading its own.
+  window.EVMap = {
+    map: map,
+    getStations: function () { return allStations; },
+    icon: icon,
+    escapeHtml: escapeHtml,
+    connectorsText: connectorsText,
+    priceText: priceText,
+  };
 })();

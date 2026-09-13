@@ -407,7 +407,14 @@ def register_handlers(client: TelegramClient) -> None:
         session.trip_state = None
         session.trip_destination = None
         session.trip_origin = None
-        session.trip_reply_keyboard_active = False
+        gps_prompt_id = session.trip_gps_prompt_msg_id
+        session.trip_gps_prompt_msg_id = None
+        if gps_prompt_id is not None:
+            # "ביטול" מגיע ממקלדת בקשת ה-GPS של זרימת הנסיעה - ההודעה שנשאה אותה מיותרת.
+            try:
+                await event.client.delete_messages(chat_id, gps_prompt_id)
+            except Exception:
+                pass
         if had_trip_flow and trip_message_id is not None:
             # מנטרלים את הכפתורים בהודעת הזרימה שבוטלה, כדי שלא תישאר אינטראקטיבית.
             try:
