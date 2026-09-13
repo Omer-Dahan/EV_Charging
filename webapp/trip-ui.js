@@ -365,6 +365,9 @@
         durationMin: route.duration / 60,
         isFallback: false,
       };
+    }).catch(function (e) {
+      clearTimeout(timer);
+      throw e;
     });
   }
 
@@ -510,10 +513,10 @@
       warningsHost = document.createElement("div");
       warningsHost.className = "trip-warnings";
       if (route.isFallback) {
-        warningsHost.appendChild(makeWarning('לא הצלחנו לחשב מסלול לפי כבישים בפועל (OSRM לא זמין) — מוצג קו ישר בקירוב.'));
+        warningsHost.appendChild(makeWarning('לא הצלחנו לחשב מסלול לפי כבישים בפועל (OSRM לא זמין). מוצג קו ישר בקירוב.'));
       }
       plan.warnings.forEach(function () {
-        warningsHost.appendChild(makeWarning("לא נמצאה עמדת טעינה מתאימה בקטע מסוים של המסלול — ייתכן שתידרש עצירה נוספת שלא סומנה."));
+        warningsHost.appendChild(makeWarning("לא נמצאה עמדת טעינה מתאימה בקטע מסוים של המסלול. ייתכן שתידרש עצירה נוספת שלא סומנה."));
       });
       summaryEl.insertBefore(warningsHost, summaryEl.querySelector("#trip-fit-btn"));
     }
@@ -554,7 +557,7 @@
 
   calcBtn.addEventListener("click", function () {
     if (!tripState.origin || !tripState.destination) {
-      setStatus("בחרו מוצא ויעד — מרשימת ההצעות או בלחיצה על המפה.", "error");
+      setStatus("בחרו מוצא ויעד, מרשימת ההצעות או בלחיצה על המפה.", "error");
       return;
     }
 
@@ -655,7 +658,7 @@
     consumptionInput.value = trip.vehicle.consumptionKwh100km;
     marginInput.value = trip.vehicle.safetyMarginPercent;
     readVehicleInputs();
-    batterySlider.value = trip.vehicle.batteryPercent;
+    batterySlider.value = trip.vehicle.batteryPercent || DEFAULT_TRIP_BATTERY_PERCENT;
     readBatteryPercent();
     savedPanel.classList.add("hidden");
     calcBtn.click();

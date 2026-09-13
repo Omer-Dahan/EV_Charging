@@ -49,3 +49,8 @@ logs/
 tmp/
 temp/
 .hermes/
+
+# Node (Playwright QA only - not part of the static site)
+node_modules/
+package.json
+package-lock.json

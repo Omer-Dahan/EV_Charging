@@ -438,7 +438,11 @@
       console.error(err);
     });
 
-  document.getElementById("search").addEventListener("input", refreshMarkers);
+  var _searchTimer = null;
+  document.getElementById("search").addEventListener("input", function () {
+    clearTimeout(_searchTimer);
+    _searchTimer = setTimeout(refreshMarkers, 200);
+  });
   document.getElementById("filters-reset").addEventListener("click", resetFilters);
 
   document.getElementById("provider-btn").addEventListener("click", function () {
