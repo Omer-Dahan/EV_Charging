@@ -1,15 +1,29 @@
+/* Theme tokens.
+   The palettes are authored separately rather than derived from one another:
+   light gets white chrome with recessed grey wells and hairline borders, dark
+   gets layered near-black surfaces.
+
+   Light lives in :root, so it is both the product default and what renders if
+   the boot script in index.html never gets to run; dark is opt-in through
+   data-theme on <html>. prefers-color-scheme is deliberately not consulted --
+   the point of the toggle is that a phone sitting in system dark still opens
+   this map light unless its owner said otherwise. */
+
 :root {
+  color-scheme: light;
+
   --bg: #ffffff;
   --bg-elevated: #ffffff;
-  --surface: #f5f6f8;
-  --surface-strong: #eaecef;
+  --surface: #f1f3f6;
+  --surface-strong: #e4e8ed;
   --text: #10161c;
   --text-secondary: #5c6773;
-  --border: #e2e5e9;
+  --border: #e0e4e9;
 
   --accent: #0068f0;
   --accent-strong: #0052c2;
   --accent-contrast: #ffffff;
+  --accent-strong-contrast: #ffffff;
   --accent-soft: #e8f1ff;
 
   --slow: #6b7684;
@@ -17,14 +31,27 @@
   --verified-bg: #e7f6ec;
   --verified-fg: #157347;
 
+  /* Status text runs darker than the matching map/marker hue: the pin only
+     needs 3:1 as a graphic, the sentence next to it needs 4.5:1. */
+  --warn-bg: #fdf0e4;
+  --warn-fg: #a9500f;
+  --danger-bg: #fdeceb;
+  --danger-fg: #b82a22;
+
   --trip-origin: #1a9c53;
   --trip-destination: #d3352c;
   --trip-route: var(--accent-strong);
   --trip-route-casing: rgba(255, 255, 255, 0.9);
 
+  --cluster-bg: rgba(0, 104, 240, 0.16);
+  --cluster-core: #0068f0;
+  --cluster-fg: #ffffff;
+
   --shadow-sheet: 0 -8px 24px rgba(16, 22, 28, 0.10);
   --shadow-marker: 0 2px 6px rgba(16, 22, 28, 0.35);
   --shadow-popup: 0 12px 28px rgba(16, 22, 28, 0.16);
+  --shadow-raised: 0 1px 3px rgba(16, 22, 28, 0.14);
+  --shadow-control: 0 2px 8px rgba(16, 22, 28, 0.16);
 
   --radius-sm: 10px;
   --radius-md: 14px;
@@ -34,34 +61,62 @@
   --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0c1015;
-    --bg-elevated: #12171d;
-    --surface: #171d24;
-    --surface-strong: #212932;
-    --text: #eef1f4;
-    --text-secondary: #93a0ac;
-    --border: #232b34;
+[data-theme="dark"] {
+  color-scheme: dark;
 
-    --accent: #3d94ff;
-    --accent-strong: #6bacff;
-    --accent-contrast: #051426;
-    --accent-soft: rgba(61, 148, 255, 0.16);
+  --bg: #0c1015;
+  --bg-elevated: #12171d;
+  --surface: #171d24;
+  --surface-strong: #212932;
+  --text: #eef1f4;
+  --text-secondary: #93a0ac;
+  --border: #232b34;
 
-    --slow: #8b96a3;
-    --ultra: #f0904a;
-    --verified-bg: rgba(34, 197, 94, 0.14);
-    --verified-fg: #4ade80;
+  --accent: #3d94ff;
+  --accent-strong: #6bacff;
+  --accent-contrast: #051426;
+  --accent-strong-contrast: #0b1b2e;
+  --accent-soft: rgba(61, 148, 255, 0.16);
 
-    --trip-origin: #34c774;
-    --trip-destination: #f0554a;
-    --trip-route: var(--accent-strong);
-    --trip-route-casing: rgba(6, 9, 13, 0.85);
+  --slow: #8b96a3;
+  --ultra: #f0904a;
+  --verified-bg: rgba(34, 197, 94, 0.14);
+  --verified-fg: #4ade80;
 
-    --shadow-sheet: 0 -8px 24px rgba(0, 0, 0, 0.45);
-    --shadow-marker: 0 2px 6px rgba(0, 0, 0, 0.5);
-    --shadow-popup: 0 12px 28px rgba(0, 0, 0, 0.5);
+  --warn-bg: rgba(240, 144, 74, 0.14);
+  --warn-fg: #f0a566;
+  --danger-bg: rgba(240, 85, 74, 0.14);
+  --danger-fg: #f5786e;
+
+  --trip-origin: #34c774;
+  --trip-destination: #f0554a;
+  --trip-route: var(--accent-strong);
+  --trip-route-casing: rgba(6, 9, 13, 0.85);
+
+  --cluster-bg: rgba(61, 148, 255, 0.20);
+  --cluster-core: #3d94ff;
+  --cluster-fg: #051426;
+
+  --shadow-sheet: 0 -8px 24px rgba(0, 0, 0, 0.45);
+  --shadow-marker: 0 2px 6px rgba(0, 0, 0, 0.5);
+  --shadow-popup: 0 12px 28px rgba(0, 0, 0, 0.5);
+  --shadow-raised: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-control: 0 2px 8px rgba(0, 0, 0, 0.5);
+}
+
+/* Only while the theme is actually being switched, so the palette crossfades
+   instead of snapping. The blanket selector (and !important) is what makes it
+   reach the ID-scoped rules further down; it lives for ~220ms and is then
+   removed by app.js, so it never costs anything at rest. */
+@media (prefers-reduced-motion: no-preference) {
+  html.is-theme-switching,
+  html.is-theme-switching *:not(.leaflet-tile):not(.leaflet-tile-container) {
+    transition: background-color 200ms linear,
+                border-color 200ms linear,
+                color 200ms linear,
+                fill 200ms linear,
+                stroke 200ms linear,
+                box-shadow 200ms linear !important;
   }
 }
 
@@ -122,11 +177,41 @@ button:active { transform: scale(0.97); }
   gap: 10px;
 }
 
+#toolbar.hidden { display: none; }
+
 #count-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 22px;
   font-size: 12px;
   font-weight: 500;
   color: var(--text-secondary);
   letter-spacing: 0.01em;
+}
+
+/* Only shown while a filter is actually narrowing the results, so the
+   toolbar stays quiet in its default state. */
+#filters-reset {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+#filters-reset .icon { width: 13px; height: 13px; }
+#filters-reset.hidden { display: none; }
+
+@media (hover: hover) and (pointer: fine) {
+  #filters-reset:hover { background: var(--surface); color: var(--text); }
 }
 
 /* search */
@@ -199,7 +284,7 @@ button:active { transform: scale(0.97); }
 .speed-btn.is-active {
   background: var(--bg-elevated);
   color: var(--text);
-  box-shadow: 0 1px 3px rgba(16, 22, 28, 0.12);
+  box-shadow: var(--shadow-raised);
   font-weight: 600;
 }
 
@@ -397,10 +482,123 @@ button:active { transform: scale(0.97); }
   #list-toggle:hover { background: var(--surface-strong); }
 }
 
-#map {
+/* One Leaflet instance per tab, stacked in the same box. The inactive pane
+   keeps its layout size (visibility, not display) so Leaflet never wakes up
+   to a zero-sized container. */
+#map-stack {
   flex: 1 1 auto;
+  position: relative;
   width: 100%;
   min-height: 0;
+}
+
+.map-pane {
+  position: absolute;
+  inset: 0;
+}
+
+.map-pane.is-inactive {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* Leaflet ships its controls in fixed white-on-grey, which is right for the
+   light map and wrong for the dark one. Recolouring the shared .leaflet-bar
+   rules keeps zoom and reset identical to each other and to the app chrome;
+   the glyph metrics stay Leaflet's. */
+.leaflet-bar {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-control);
+  overflow: hidden;
+}
+
+.leaflet-bar a,
+.leaflet-bar a:hover {
+  background-color: var(--bg-elevated);
+  color: var(--text);
+  border-bottom-color: var(--border);
+}
+
+.leaflet-bar a:last-child { border-bottom: none; }
+
+@media (hover: hover) and (pointer: fine) {
+  .leaflet-bar a:hover { background-color: var(--surface); }
+}
+
+.leaflet-bar a:active { background-color: var(--surface-strong); }
+
+.leaflet-bar a.leaflet-disabled,
+.leaflet-bar a.leaflet-disabled:hover {
+  background-color: var(--surface);
+  color: var(--text-secondary);
+  opacity: 0.5;
+}
+
+.leaflet-bar a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* Shows through while tiles are still in flight, and around the edges of the
+   world at low zoom. */
+.leaflet-container { background: var(--surface); }
+
+/* Dark mode keeps the OSM raster -- it is the only keyless source with Hebrew
+   labels -- and recolours it here. Tuned by eye against Tel Aviv at z12: the
+   grayscale pass first takes the cream out of the landuse polygons so the
+   inversion does not turn them olive, and the result lands on neutral charcoal
+   land, slate water, and light labels. Scoped to the tile pane, so markers,
+   the route and the controls above it keep their real colours. */
+[data-theme="dark"] .leaflet-tile-pane {
+  filter: grayscale(0.55) invert(1) hue-rotate(190deg) brightness(0.84) contrast(1.1) saturate(0.75);
+}
+
+.leaflet-control-attribution {
+  background: color-mix(in srgb, var(--bg-elevated) 82%, transparent);
+  color: var(--text-secondary);
+  border-start-start-radius: 6px;
+  padding: 1px 6px;
+  font-size: 10.5px;
+}
+
+.leaflet-control-attribution a { color: var(--text-secondary); }
+
+.map-reset {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+}
+
+.map-reset .icon { width: 15px; height: 15px; }
+
+/* markercluster's stock palette is a green/yellow/orange traffic light that
+   has nothing to do with this map -- the count is written inside the bubble
+   anyway, so all sizes share one accent chip. */
+.marker-cluster {
+  background-color: var(--cluster-bg);
+}
+
+.marker-cluster div {
+  background-color: var(--cluster-core);
+  color: var(--cluster-fg);
+  font-weight: 700;
+  box-shadow: var(--shadow-marker);
+}
+
+.marker-cluster span {
+  font: 600 12px/30px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+
+/* While a point is being picked, the instruction bar owns the top of the map,
+   so the zoom stack steps out from under it instead of being covered. */
+#map-stack .leaflet-top.leaflet-left {
+  transition: transform 220ms var(--ease-out);
+}
+
+#map-stack.is-picking .leaflet-top.leaflet-left {
+  transform: translateY(58px);
 }
 
 /* list panel (bottom sheet) */
@@ -544,6 +742,13 @@ button:active { transform: scale(0.97); }
   background: var(--bg-elevated);
 }
 
+.leaflet-container a.leaflet-popup-close-button {
+  color: var(--text-secondary);
+  padding: 6px 6px 0 0;
+}
+
+.leaflet-container a.leaflet-popup-close-button:hover { color: var(--text); }
+
 .leaflet-popup-content { margin: 12px 14px; }
 
 .popup-header {
@@ -633,15 +838,70 @@ button:active { transform: scale(0.97); }
   color: var(--text) !important;
 }
 
-/* mode tabs */
+/* top bar: mode tabs + theme toggle */
 
-#mode-tabs {
+#topbar {
   flex: 0 0 auto;
   display: flex;
+  align-items: stretch;
   border-bottom: 1px solid var(--border);
   background: var(--bg-elevated);
   position: relative;
   z-index: 1000;
+}
+
+#mode-tabs {
+  flex: 1 1 auto;
+  display: flex;
+  min-width: 0;
+}
+
+/* Leading corner of the bar -- visually top-right under dir="rtl" -- and
+   first in tab order, which matches the reading order there. */
+#theme-toggle {
+  flex: 0 0 auto;
+  position: relative;
+  align-self: center;
+  width: 34px;
+  height: 34px;
+  margin-inline: 8px 2px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  transition: background 160ms var(--ease-out), color 160ms var(--ease-out);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  #theme-toggle:hover { background: var(--surface); color: var(--text); }
+}
+
+/* Both glyphs stay mounted and swap places, so the icon turns over on click
+   rather than popping. */
+.theme-icon {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 18px;
+  height: 18px;
+  transition: opacity 200ms var(--ease-out), transform 200ms var(--ease-out);
+}
+
+.theme-icon--sun,
+[data-theme="dark"] .theme-icon--moon {
+  opacity: 0;
+  transform: rotate(-70deg) scale(0.55);
+}
+
+[data-theme="dark"] .theme-icon--sun {
+  opacity: 1;
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .theme-icon { transition: none; }
+  .theme-icon--sun,
+  [data-theme="dark"] .theme-icon--moon { transform: none; }
 }
 
 .mode-tab {
@@ -912,7 +1172,7 @@ button:active { transform: scale(0.97); }
 #trip-battery-value {
   font-size: 15px;
   font-weight: 700;
-  color: var(--accent);
+  color: var(--accent-strong);
   font-variant-numeric: tabular-nums;
   min-width: 3ch;
   text-align: end;
@@ -1083,8 +1343,8 @@ button:active { transform: scale(0.97); }
 }
 
 #trip-status.hidden { display: none; }
-#trip-status[data-state="error"] { background: rgba(211, 53, 44, 0.12); color: var(--trip-destination); }
-#trip-status[data-state="warning"] { background: rgba(217, 99, 30, 0.12); color: var(--ultra); }
+#trip-status[data-state="error"] { background: var(--danger-bg); color: var(--danger-fg); }
+#trip-status[data-state="warning"] { background: var(--warn-bg); color: var(--warn-fg); }
 
 /* summary */
 
@@ -1146,7 +1406,7 @@ button:active { transform: scale(0.97); }
   height: 26px;
   border-radius: var(--radius-pill);
   background: var(--accent-strong);
-  color: #fff;
+  color: var(--accent-strong-contrast);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1179,8 +1439,8 @@ button:active { transform: scale(0.97); }
   gap: 8px;
   padding: 9px 10px;
   border-radius: var(--radius-sm);
-  background: rgba(217, 99, 30, 0.12);
-  color: var(--ultra);
+  background: var(--warn-bg);
+  color: var(--warn-fg);
   font-size: 12.5px;
   margin-top: 6px;
 }
@@ -1215,7 +1475,7 @@ button:active { transform: scale(0.97); }
   background: var(--accent-strong);
   border: 2px solid var(--bg-elevated);
   box-shadow: var(--shadow-marker);
-  color: #fff;
+  color: var(--accent-strong-contrast);
   font-size: 12px;
   font-weight: 700;
 }
@@ -1331,7 +1591,7 @@ button:active { transform: scale(0.97); }
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .saved-trip-delete:hover { background: var(--surface-strong); color: var(--trip-destination); }
+  .saved-trip-delete:hover { background: var(--surface-strong); color: var(--danger-fg); }
 }
 
 #saved-trips-empty {
@@ -1347,4 +1607,5 @@ button:active { transform: scale(0.97); }
   #list-panel, #trip-panel { transition: opacity 180ms ease; }
   #list-panel.hidden, #trip-panel.hidden { transform: none; opacity: 0; }
   button, .list-item, .trip-stop-item, .saved-trip-item, #search, .popup-actions a, .mode-tab { transition: none; }
+  #map-stack .leaflet-top.leaflet-left { transition: none; }
 }

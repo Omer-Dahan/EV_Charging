@@ -10,24 +10,47 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
 <link rel="stylesheet" href="style.css" />
 
+<script>
+  // Runs before the stylesheet paints: reading the saved choice here avoids a
+  // light flash for users who picked dark. No stored choice means light.
+  (function () {
+    var saved = null;
+    try { saved = localStorage.getItem("ev-theme"); } catch (e) { /* storage blocked */ }
+    document.documentElement.setAttribute("data-theme", saved === "dark" ? "dark" : "light");
+  })();
+</script>
+
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
 <body>
 
 <div id="app">
-  <nav id="mode-tabs" role="tablist" aria-label="מצב תצוגה">
-    <button type="button" class="mode-tab is-active" id="tab-map" role="tab" aria-selected="true" aria-controls="toolbar">
-      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.106 5.553a2 2 0 0 0 1.788 0l3.659-1.83A1 1 0 0 1 21 4.619v12.764a1 1 0 0 1-.553.894l-4.553 2.277a2 2 0 0 1-1.788 0l-4.212-2.106a2 2 0 0 0-1.788 0l-3.659 1.83A1 1 0 0 1 3 19.381V6.618a1 1 0 0 1 .553-.894l4.553-2.277a2 2 0 0 1 1.788 0z"/><path d="M15 5.764v15"/><path d="M9 3.236v15"/></svg>
-      <span>מפה</span>
+  <header id="topbar">
+    <button type="button" id="theme-toggle" aria-label="מעבר למצב כהה" title="מעבר למצב כהה">
+      <svg class="icon theme-icon theme-icon--sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
+      <svg class="icon theme-icon theme-icon--moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
     </button>
-    <button type="button" class="mode-tab" id="tab-trip" role="tab" aria-selected="false" aria-controls="trip-panel">
-      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M8 6.5h6a4 4 0 0 1 4 4v0a4 4 0 0 1-4 4H8"/></svg>
-      <span>תכנון נסיעה</span>
-    </button>
-  </nav>
+
+    <nav id="mode-tabs" role="tablist" aria-label="מצב תצוגה">
+      <button type="button" class="mode-tab is-active" id="tab-map" role="tab" aria-selected="true" aria-controls="map">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.106 5.553a2 2 0 0 0 1.788 0l3.659-1.83A1 1 0 0 1 21 4.619v12.764a1 1 0 0 1-.553.894l-4.553 2.277a2 2 0 0 1-1.788 0l-4.212-2.106a2 2 0 0 0-1.788 0l-3.659 1.83A1 1 0 0 1 3 19.381V6.618a1 1 0 0 1 .553-.894l4.553-2.277a2 2 0 0 1 1.788 0z"/><path d="M15 5.764v15"/><path d="M9 3.236v15"/></svg>
+        <span>מפה</span>
+      </button>
+      <button type="button" class="mode-tab" id="tab-trip" role="tab" aria-selected="false" aria-controls="trip-panel">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M8 6.5h6a4 4 0 0 1 4 4v0a4 4 0 0 1-4 4H8"/></svg>
+        <span>תכנון נסיעה</span>
+      </button>
+    </nav>
+  </header>
 
   <header id="toolbar">
-    <div id="count-line"><span id="count">טוען עמדות&hellip;</span></div>
+    <div id="count-line">
+      <span id="count">טוען עמדות&hellip;</span>
+      <button type="button" id="filters-reset" class="hidden">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+        <span>אפס סינון</span>
+      </button>
+    </div>
 
     <div id="search-row">
       <svg class="icon" id="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -76,7 +99,16 @@
     </div>
   </header>
 
-  <div id="map"></div>
+  <div id="map-stack">
+    <div id="map" class="map-pane" role="tabpanel" aria-label="מפת עמדות טעינה"></div>
+    <div id="trip-map" class="map-pane is-inactive"></div>
+
+    <div id="map-pick-banner" class="hidden">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="7"/><path d="M12 2v3"/><path d="M12 19v3"/><path d="M2 12h3"/><path d="M19 12h3"/></svg>
+      <span id="map-pick-text">לחצו על המפה לבחירת מוצא</span>
+      <button type="button" id="map-pick-cancel">ביטול</button>
+    </div>
+  </div>
 
   <div id="list-panel" class="hidden">
     <div id="list-panel-handle"></div>
@@ -87,12 +119,6 @@
       </button>
     </div>
     <div id="list-items"></div>
-  </div>
-
-  <div id="map-pick-banner" class="hidden">
-    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="7"/><path d="M12 2v3"/><path d="M12 19v3"/><path d="M2 12h3"/><path d="M19 12h3"/></svg>
-    <span id="map-pick-text">לחצו על המפה לבחירת מוצא</span>
-    <button type="button" id="map-pick-cancel">ביטול</button>
   </div>
 
   <div id="trip-panel" class="hidden" role="tabpanel" aria-label="תכנון נסיעה">

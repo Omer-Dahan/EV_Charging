@@ -9,6 +9,73 @@
     } catch (e) { /* not running inside Telegram, ignore */ }
   }
 
+  // ---------- theme ----------
+  //
+  // data-theme is already on <html> by the time this runs (boot script in
+  // index.html). Light is the default for anyone who has not chosen: the map
+  // reads better light, and prefers-color-scheme is deliberately ignored so
+  // the default does not silently flip on a phone that is in dark mode.
+
+  var THEME_KEY = "ev-theme";
+  var themeListeners = [];
+  var themeToggle = document.getElementById("theme-toggle");
+
+  function currentTheme() {
+    return document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
+  }
+
+  function onThemeChange(fn) {
+    themeListeners.push(fn);
+  }
+
+  // Telegram paints its own header and background around the WebApp; without
+  // this the sheet is framed in whatever the client happens to be using.
+  function syncTelegramChrome() {
+    if (!tg) return;
+    var color = getComputedStyle(document.documentElement).getPropertyValue("--bg-elevated").trim();
+    try {
+      tg.setBackgroundColor(color);
+      tg.setHeaderColor(color);
+    } catch (e) { /* older client, or an unsupported colour format */ }
+  }
+
+  function renderThemeControl(theme) {
+    var target = theme === "dark" ? "בהיר" : "כהה";
+    themeToggle.setAttribute("aria-label", "מעבר למצב " + target);
+    themeToggle.setAttribute("title", "מעבר למצב " + target);
+  }
+
+  function setTheme(theme) {
+    var root = document.documentElement;
+    root.classList.add("is-theme-switching");
+    window.setTimeout(function () { root.classList.remove("is-theme-switching"); }, 220);
+
+    root.setAttribute("data-theme", theme);
+    try { localStorage.setItem(THEME_KEY, theme); } catch (e) { /* storage blocked: this tab only */ }
+
+    renderThemeControl(theme);
+    syncTelegramChrome();
+    themeListeners.forEach(function (fn) { fn(theme); });
+  }
+
+  themeToggle.addEventListener("click", function () {
+    setTheme(currentTheme() === "dark" ? "light" : "dark");
+  });
+
+  renderThemeControl(currentTheme());
+  syncTelegramChrome();
+
+  // One definition for both maps. OSM's standard style is light-only, but its
+  // Hebrew and Arabic place names are the reason this map uses it at all, and
+  // every keyless dark basemap on offer is Latin-labelled -- so dark mode
+  // recolours these same tiles in CSS instead of swapping the source.
+  function addBaseTiles(targetMap) {
+    return L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: "&copy; OpenStreetMap contributors",
+    }).addTo(targetMap);
+  }
+
   var ISRAEL_CENTER = [31.5, 34.8];
   var DEFAULT_ZOOM = 8;
   var FOCUSED_ZOOM = 13;
@@ -26,6 +93,7 @@
     map: '<path d="M14.106 5.553a2 2 0 0 0 1.788 0l3.659-1.83A1 1 0 0 1 21 4.619v12.764a1 1 0 0 1-.553.894l-4.553 2.277a2 2 0 0 1-1.788 0l-4.212-2.106a2 2 0 0 0-1.788 0l-3.659 1.83A1 1 0 0 1 3 19.381V6.618a1 1 0 0 1 .553-.894l4.553-2.277a2 2 0 0 1 1.788 0z"/><path d="M15 5.764v15"/><path d="M9 3.236v15"/>',
     check: '<path d="M20 6 9 17l-5-5"/>',
     x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+    maximize: '<path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/>',
   };
 
   function icon(name, cls) {
@@ -40,15 +108,15 @@
   var userLng = parseFloat(params.get("lng"));
   var hasUserLocation = !isNaN(userLat) && !isNaN(userLng);
 
-  var map = L.map("map", { zoomControl: true, attributionControl: true }).setView(
-    hasUserLocation ? [userLat, userLng] : ISRAEL_CENTER,
-    hasUserLocation ? FOCUSED_ZOOM : DEFAULT_ZOOM
-  );
+  var DEFAULT_VIEW = {
+    center: hasUserLocation ? [userLat, userLng] : ISRAEL_CENTER,
+    zoom: hasUserLocation ? FOCUSED_ZOOM : DEFAULT_ZOOM,
+  };
 
-  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom: 19,
-    attribution: "&copy; OpenStreetMap contributors",
-  }).addTo(map);
+  var map = L.map("map", { zoomControl: true, attributionControl: true })
+    .setView(DEFAULT_VIEW.center, DEFAULT_VIEW.zoom);
+
+  addBaseTiles(map);
 
   var clusterGroup = L.markerClusterGroup({
     disableClusteringAtZoom: 17,
@@ -56,6 +124,59 @@
     maxClusterRadius: 55,
   });
   map.addLayer(clusterGroup);
+
+  // "Reset view" sits in the same top-left bar as the zoom buttons and borrows
+  // Leaflet's .leaflet-bar styling, so it reads as map chrome rather than a
+  // second, competing control cluster. It only touches the viewport (centre,
+  // zoom, open popups) — filters have their own reset in the toolbar.
+  function addResetViewControl(targetMap, view, onReset) {
+    var control = L.control({ position: "topleft" });
+    control.onAdd = function () {
+      var container = L.DomUtil.create("div", "leaflet-bar leaflet-control");
+      var link = L.DomUtil.create("a", "map-reset", container);
+      link.href = "#";
+      link.title = "איפוס תצוגה";
+      link.setAttribute("role", "button");
+      link.setAttribute("aria-label", "איפוס תצוגה");
+      link.innerHTML = icon("maximize");
+      L.DomEvent.on(link, "click", function (e) {
+        L.DomEvent.stop(e);
+        targetMap.closePopup();
+        if (onReset) onReset();
+        targetMap.setView(view.center, view.zoom);
+      });
+      L.DomEvent.disableClickPropagation(container);
+      return container;
+    };
+    control.addTo(targetMap);
+    return control;
+  }
+
+  addResetViewControl(map, DEFAULT_VIEW, function () {
+    clusterGroup.unspiderfy();
+  });
+
+  // Each tab owns its own Leaflet instance; they are stacked in #map-stack and
+  // swapped by visibility. A hidden pane keeps its box, but the toolbar
+  // appearing/disappearing changes the stack height, so the pane being shown
+  // always gets an invalidateSize() before it is painted.
+  var panes = {};
+
+  function registerPane(name, element, paneMap) {
+    panes[name] = { element: element, map: paneMap };
+  }
+
+  function setActivePane(name) {
+    Object.keys(panes).forEach(function (key) {
+      panes[key].element.classList.toggle("is-inactive", key !== name);
+    });
+    var active = panes[name];
+    if (!active) return;
+    active.map.invalidateSize();
+    requestAnimationFrame(function () { active.map.invalidateSize(); });
+  }
+
+  registerPane("map", document.getElementById("map"), map);
 
   if (hasUserLocation) {
     var userIcon = L.divIcon({
@@ -177,7 +298,19 @@
     document.getElementById("count").textContent =
       matched.length.toLocaleString("he-IL") + " מתוך " + allStations.length.toLocaleString("he-IL") + " עמדות";
 
+    var filtered = Boolean(query) || activeSpeed !== "ALL" || activeProvider !== "ALL";
+    document.getElementById("filters-reset").classList.toggle("hidden", !filtered);
+
     renderList(matched);
+  }
+
+  function resetFilters() {
+    document.getElementById("search").value = "";
+    activeSpeed = "ALL";
+    document.querySelectorAll(".speed-btn").forEach(function (b) {
+      b.classList.toggle("is-active", b.getAttribute("data-speed") === "ALL");
+    });
+    selectProvider("ALL", ALL_PROVIDERS_LABEL); // refreshes the markers itself
   }
 
   function renderList(matched) {
@@ -306,6 +439,7 @@
     });
 
   document.getElementById("search").addEventListener("input", refreshMarkers);
+  document.getElementById("filters-reset").addEventListener("click", resetFilters);
 
   document.getElementById("provider-btn").addEventListener("click", function () {
     if (isProviderDropdownOpen()) {
@@ -350,15 +484,22 @@
     document.getElementById("list-panel").classList.add("hidden");
   });
 
-  // Minimal read-only surface for trip-ui.js (kept as a separate, independent
-  // feature). It reuses the same map instance and station list rather than
-  // loading its own.
+  // Surface for trip-ui.js, which runs its own Leaflet instance on the trip
+  // pane. It borrows the station list and the shared formatting helpers, but
+  // no map state: the two maps never touch each other's layers or viewport.
   window.EVMap = {
-    map: map,
+    mainMap: map,
+    defaultView: DEFAULT_VIEW,
     getStations: function () { return allStations; },
     icon: icon,
     escapeHtml: escapeHtml,
     connectorsText: connectorsText,
     priceText: priceText,
+    addResetViewControl: addResetViewControl,
+    registerPane: registerPane,
+    setActivePane: setActivePane,
+    addBaseTiles: addBaseTiles,
+    onThemeChange: onThemeChange,
+    currentTheme: currentTheme,
   };
 })();

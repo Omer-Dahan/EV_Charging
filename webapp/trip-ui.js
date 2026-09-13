@@ -1,6 +1,12 @@
 // Trip planner UI. Fully independent of the Telegram bot: it only talks to
-// Nominatim (geocoding) and OSRM (routing), both free public services, and
-// reuses the existing map instance + station list via window.EVMap.
+// Nominatim (geocoding) and OSRM (routing), both free public services.
+//
+// The planner draws on its own Leaflet instance (#trip-map), not the station
+// map. Keeping them apart means the route, the origin/destination pins and the
+// numbered stops can never collide with the clustered station layer or its
+// filters, each tab remembers its own centre/zoom, and the planning map stays
+// cheap: it holds a tile layer and at most a handful of markers, instead of
+// the ~3,400 the station map manages.
 (function () {
   "use strict";
 
@@ -11,7 +17,6 @@
     return;
   }
 
-  var map = EVMap.map;
   var icon = EVMap.icon;
   var escapeHtml = EVMap.escapeHtml;
   var connectorsText = EVMap.connectorsText;
@@ -30,6 +35,7 @@
   var originInput = $("trip-origin-input"), destInput = $("trip-dest-input");
   var originSuggest = $("trip-origin-suggest"), destSuggest = $("trip-dest-suggest");
   var swapBtn = $("trip-swap-btn");
+  var mapStack = $("map-stack");
   var pickBanner = $("map-pick-banner"), pickText = $("map-pick-text"), pickCancel = $("map-pick-cancel");
   var settingsToggle = $("trip-settings-toggle"), settingsPanel = $("trip-settings");
   var rangeInput = $("trip-range"), consumptionInput = $("trip-consumption"), marginInput = $("trip-margin");
@@ -42,6 +48,14 @@
 
   var tripState = { origin: null, destination: null };
   var pickTarget = null;
+
+  var map = L.map("trip-map", { zoomControl: true, attributionControl: true })
+    .setView(EVMap.defaultView.center, EVMap.defaultView.zoom);
+
+  EVMap.addBaseTiles(map);
+
+  EVMap.addResetViewControl(map, EVMap.defaultView);
+  EVMap.registerPane("trip", $("trip-map"), map);
 
   function cssVar(name) {
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -104,14 +118,17 @@
 
   // ---------- tab switching ----------
 
+  // Each tab shows only its own tools: the station filters belong to the map
+  // tab, the planner sheet to the trip tab. Toggling the toolbar resizes the
+  // map stack, so the pane swap (which re-measures Leaflet) runs last.
   function showMapTab() {
     tabMap.classList.add("is-active"); tabMap.setAttribute("aria-selected", "true");
     tabTrip.classList.remove("is-active"); tabTrip.setAttribute("aria-selected", "false");
-    toolbar.classList.remove("hidden");
-    tripPanel.classList.add("hidden");
     cancelPick();
+    tripPanel.classList.add("hidden");
     savedPanel.classList.add("hidden");
-    setTimeout(function () { map.invalidateSize(); }, 300);
+    toolbar.classList.remove("hidden");
+    EVMap.setActivePane("map");
   }
 
   function showTripTab() {
@@ -120,7 +137,7 @@
     toolbar.classList.add("hidden");
     listPanel.classList.add("hidden");
     tripPanel.classList.remove("hidden");
-    setTimeout(function () { map.invalidateSize(); }, 300);
+    EVMap.setActivePane("trip");
   }
 
   tabMap.addEventListener("click", showMapTab);
@@ -271,6 +288,7 @@
     pickTarget = target;
     pickText.textContent = target === "origin" ? "לחצו על המפה לבחירת מוצא" : "לחצו על המפה לבחירת יעד";
     pickBanner.classList.remove("hidden");
+    mapStack.classList.add("is-picking");
     map.getContainer().style.cursor = "crosshair";
     document.querySelectorAll(".trip-pick-btn").forEach(function (b) {
       b.classList.toggle("is-active", b.getAttribute("data-target") === target);
@@ -280,6 +298,7 @@
   function cancelPick() {
     pickTarget = null;
     pickBanner.classList.add("hidden");
+    mapStack.classList.remove("is-picking");
     map.getContainer().style.cursor = "";
     document.querySelectorAll(".trip-pick-btn").forEach(function (b) { b.classList.remove("is-active"); });
   }
@@ -369,8 +388,19 @@
 
   // ---------- map rendering ----------
 
-  var tripLayer = L.layerGroup().addTo(map);
+  // featureGroup, not layerGroup: framing the route needs getBounds().
+  var tripLayer = L.featureGroup().addTo(map);
   var lastResult = null;
+
+  // The route is drawn with literal colour values pulled from the stylesheet,
+  // so unlike the marker elements it does not follow a theme change on its own.
+  var routeCasing = null;
+  var routeLine = null;
+
+  EVMap.onThemeChange(function () {
+    if (routeCasing) routeCasing.setStyle({ color: cssVar("--trip-route-casing") });
+    if (routeLine) routeLine.setStyle({ color: cssVar("--trip-route") });
+  });
 
   function stopIconHtml(index) {
     return '<div class="trip-marker-stop"><span>' + (index + 1) + "</span></div>";
@@ -378,10 +408,11 @@
 
   function renderTripOnMap(route, plan, origin, destination) {
     tripLayer.clearLayers();
+    routeCasing = routeLine = null;
 
     var latlngs = route.coords.map(function (c) { return [c.lat, c.lng]; });
-    L.polyline(latlngs, { color: cssVar("--trip-route-casing"), weight: 8, opacity: 1, lineCap: "round", lineJoin: "round" }).addTo(tripLayer);
-    L.polyline(latlngs, { color: cssVar("--trip-route"), weight: 4.5, opacity: 1, lineCap: "round", lineJoin: "round" }).addTo(tripLayer);
+    routeCasing = L.polyline(latlngs, { color: cssVar("--trip-route-casing"), weight: 8, opacity: 1, lineCap: "round", lineJoin: "round" }).addTo(tripLayer);
+    routeLine = L.polyline(latlngs, { color: cssVar("--trip-route"), weight: 4.5, opacity: 1, lineCap: "round", lineJoin: "round" }).addTo(tripLayer);
 
     var originIcon = L.divIcon({ className: "", html: '<div class="trip-marker-origin">' + icon("map-pin") + "</div>", iconSize: [22, 22], iconAnchor: [11, 11] });
     var destIcon = L.divIcon({ className: "", html: '<div class="trip-marker-destination">' + icon("map-pin") + "</div>", iconSize: [22, 22], iconAnchor: [11, 11] });
@@ -394,6 +425,36 @@
       var marker = L.marker([s.lat, s.lng], { icon: divIcon }).addTo(tripLayer);
       marker.bindPopup(buildStopPopupHtml(s, i, stop.distanceFromStartKm), { maxWidth: 260 });
     });
+  }
+
+  // How much of the map the planner sheet currently hides.
+  function sheetOverlapPx() {
+    if (tripPanel.classList.contains("hidden")) return 0;
+    var mapTop = map.getContainer().getBoundingClientRect().top;
+    var sheetTop = tripPanel.getBoundingClientRect().top;
+    return Math.max(0, map.getSize().y - (sheetTop - mapTop));
+  }
+
+  // The sheet covers the bottom of the map, so the route is framed into the
+  // strip that stays visible above it rather than the full container --
+  // otherwise the destination ends up behind the sheet on long routes.
+  function fitTripBounds() {
+    var bounds = tripLayer.getBounds();
+    if (!bounds.isValid()) return;
+    var mapHeight = map.getSize().y;
+    map.fitBounds(bounds, {
+      paddingTopLeft: [30, 30],
+      // Never leave less than a usable strip, however tall the sheet gets.
+      paddingBottomRight: [30, Math.min(sheetOverlapPx() + 16, mapHeight - 140)],
+    });
+  }
+
+  // Centre a single point in that same visible strip, so its popup opens above
+  // the sheet instead of behind it.
+  function focusOnTripMap(lat, lng, zoom) {
+    map.setView([lat, lng], zoom);
+    var offset = Math.round(sheetOverlapPx() / 2);
+    if (offset > 0) map.panBy([0, offset], { animate: false });
   }
 
   function buildStopPopupHtml(s, index, distanceFromStartKm) {
@@ -480,7 +541,7 @@
         '<div class="trip-stop-meta">אחרי ' + Math.round(stop.distanceFromStartKm).toLocaleString("he-IL") + ' ק"מ · ' + (s.mp || "?") + "kW · " + escapeHtml(s.p || "") + "</div>" +
         "</div>";
       div.addEventListener("click", function () {
-        map.setView([s.lat, s.lng], 14);
+        focusOnTripMap(s.lat, s.lng, 14);
         tripLayer.eachLayer(function (layer) {
           if (layer.getLatLng && layer.getLatLng().lat === s.lat && layer.getLatLng().lng === s.lng) layer.openPopup();
         });
@@ -513,6 +574,7 @@
         renderSummary(route, plan, vehicle);
         renderStopsList(plan);
         setStatus(null);
+        fitTripBounds(); // after the sheet has grown, so its height is final
         saveTripToHistory(tripState.origin, tripState.destination, vehicle, plan, route);
         lastResult = { route: route, plan: plan };
       })
@@ -525,10 +587,7 @@
       });
   });
 
-  fitBtn.addEventListener("click", function () {
-    var bounds = tripLayer.getBounds();
-    if (bounds.isValid()) map.fitBounds(bounds, { padding: [40, 40] });
-  });
+  fitBtn.addEventListener("click", fitTripBounds);
 
   // ---------- saved trips ----------
 
