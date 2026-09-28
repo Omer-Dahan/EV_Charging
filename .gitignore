@@ -10,6 +10,10 @@
 *.sqlite
 *.sqlite3
 data/*.db
+
+# The station database IS tracked: the live server pulls it with git.
+# Backups and sidecar files stay ignored.
+!data/ev_stations.db
 data/*_cache.json
 users.db
 
