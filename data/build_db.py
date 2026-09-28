@@ -81,6 +81,23 @@ def normalize_text(s: Optional[str]) -> str:
     return s
 
 
+def strip_price_prefix(name: Optional[str]) -> str:
+    """Strip leading price-tier symbols ($, ₪) from station names.
+
+    Removes one or more $ or ₪ characters (and optional trailing whitespace)
+    from the **beginning** of the name only.  Does NOT touch $ signs that
+    appear in the middle of a name.  If stripping would produce an empty
+    string the original name is returned unchanged.
+    """
+    if not name:
+        return name or ""
+    cleaned = re.sub(r'^[$₪]+\s*', '', name)
+    # Safety: never return empty if original was non-empty
+    if not cleaned.strip():
+        return name
+    return cleaned.strip()
+
+
 # ==============================================================================
 # Normalization Module: City Names & Provider Names
 # ==============================================================================
@@ -335,7 +352,7 @@ def merge_source_generic(
     for st in stations:
         lat = st.get("lat")
         lng = st.get("lng")
-        name = st.get("name")
+        name = strip_price_prefix(st.get("name"))
         address = st.get("address")
         city = st.get("city")
         operator = normalize_provider(st.get("operator"))
@@ -474,7 +491,7 @@ def fetch_auto_coil() -> List[Dict[str, Any]]:
 
     normalized: List[Dict[str, Any]] = []
     for s in raw_stations:
-        name = (s.get("name") or "").strip()
+        name = strip_price_prefix((s.get("name") or "").strip())
         address = (s.get("address") or "").strip()
         city = None
         if address and "," in address:
@@ -606,7 +623,7 @@ def fetch_evm() -> List[Dict[str, Any]]:
 
     normalized: List[Dict[str, Any]] = []
     for item in raw_stations:
-        name = _decode_evm_b64_url(item.get("t"))
+        name = strip_price_prefix(_decode_evm_b64_url(item.get("t")))
         address = _decode_evm_b64_url(item.get("a"))
         operator = _decode_evm_b64_url(item.get("o")) or None
 
@@ -692,7 +709,7 @@ def fetch_data_gov() -> List[Dict[str, Any]]:
 
     normalized: List[Dict[str, Any]] = []
     for r in all_records:
-        name = (r.get("name") or "").strip()
+        name = strip_price_prefix((r.get("name") or "").strip())
         address = (r.get("Address") or "").strip()
         operator = (r.get("op") or "").strip() or None
         cnt_total = int(r["count"]) if r.get("count") is not None else None
@@ -840,7 +857,7 @@ def fetch_paz_data() -> List[Dict[str, Any]]:
 
     normalized: List[Dict[str, Any]] = []
     for s in electric_stations:
-        raw_name = (s.get("name") or "").strip()
+        raw_name = strip_price_prefix((s.get("name") or "").strip())
         name = f"פז {raw_name}" if not raw_name.startswith("פז") else raw_name
         address = (s.get("address") or "").strip() or None
         city = (s.get("city") or "").strip() or None
@@ -896,7 +913,7 @@ def fetch_interev() -> List[Dict[str, Any]]:
 
     normalized: List[Dict[str, Any]] = []
     for s in raw_stations:
-        name = (s.get("siteName") or "").strip() or None
+        name = strip_price_prefix((s.get("siteName") or "").strip()) or None
         addr_raw = (s.get("siteaddress") or "").strip()
         address = addr_raw or None
 
@@ -972,7 +989,7 @@ def fetch_tesla() -> List[Dict[str, Any]]:
         if s.get("status") != "OPEN":
             continue
 
-        name = (s.get("name") or "").strip() or None
+        name = strip_price_prefix((s.get("name") or "").strip()) or None
         addr = s.get("address") or {}
         street = (addr.get("street") or "").strip() or None
         city = normalize_city((addr.get("city") or "").strip() or None)
@@ -1061,7 +1078,7 @@ def fetch_afcon() -> List[Dict[str, Any]]:
         if s.get("deleted"):
             continue
 
-        name = (s.get("dn") or "").strip() or None
+        name = strip_price_prefix((s.get("dn") or "").strip()) or None
         try:
             lat = float(s["latitude"]) if s.get("latitude") is not None else None
             lng = float(s["longitude"]) if s.get("longitude") is not None else None
@@ -1127,7 +1144,7 @@ def fetch_zen() -> List[Dict[str, Any]]:
 
     normalized: List[Dict[str, Any]] = []
     for block in blocks:
-        name = (_extract_html_attr(block, "data-name") or "").strip() or None
+        name = strip_price_prefix((_extract_html_attr(block, "data-name") or "").strip()) or None
         address = (_extract_html_attr(block, "data-address") or "").strip() or None
         city = normalize_city((_extract_html_attr(block, "data-city") or "").strip() or None)
 
@@ -1259,7 +1276,7 @@ def build_database(db_path: str = DB_PATH) -> None:
     cello_inserted = 0
     for loc in cello_locations:
         cello_id = loc.get("id")
-        name = (loc.get("name") or "").strip()
+        name = strip_price_prefix((loc.get("name") or "").strip())
         address = (loc.get("address") or "").strip()
         city = (loc.get("city") or "").strip() or None
 
@@ -1350,7 +1367,7 @@ def build_database(db_path: str = DB_PATH) -> None:
     for st in auto_stations:
         lat = st.get("lat")
         lng = st.get("lng")
-        name = st.get("name")
+        name = strip_price_prefix(st.get("name"))
         address = st.get("address")
         st_conns = st.get("connectors") or []
 
@@ -1378,7 +1395,7 @@ def build_database(db_path: str = DB_PATH) -> None:
                     stations_count, updated_at, sources, is_gov_official
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
-                None, st.get("name"), st.get("address"), st.get("city"), lat, lng,
+                None, name, st.get("address"), st.get("city"), lat, lng,
                 None, st.get("operator"), None, 0,
                 "[]", "[]", "{}", connectors_json,
                 1, now_iso, "auto_coil", 0
@@ -1411,7 +1428,7 @@ def build_database(db_path: str = DB_PATH) -> None:
     for st in evm_stations:
         lat = st.get("lat")
         lng = st.get("lng")
-        name = st.get("name")
+        name = strip_price_prefix(st.get("name"))
         address = st.get("address")
         st_conns = st.get("connectors") or []
 
@@ -1440,7 +1457,7 @@ def build_database(db_path: str = DB_PATH) -> None:
                     stations_count, updated_at, sources, is_gov_official
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
-                None, st.get("name"), st.get("address"), st.get("city"), lat, lng,
+                None, name, st.get("address"), st.get("city"), lat, lng,
                 None, st.get("operator"), None, 0,
                 "[]", "[]", "{}", connectors_json,
                 cnt, now_iso, "evm", 0
@@ -1526,7 +1543,7 @@ def build_database(db_path: str = DB_PATH) -> None:
     for st in paz_stations:
         lat = st.get("lat")
         lng = st.get("lng")
-        name = st.get("name")
+        name = strip_price_prefix(st.get("name"))
         address = st.get("address")
         st_conns = st.get("connectors") or []
         st_provider = st.get("operator") or "Yellow"
