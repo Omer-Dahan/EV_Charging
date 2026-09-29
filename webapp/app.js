@@ -80,6 +80,14 @@
   var DEFAULT_ZOOM = 8;
   var FOCUSED_ZOOM = 13;
 
+  // Loose box around Israel (plus the Golan and a margin over the Red Sea at
+  // Eilat) -- not a precise border, just enough to stop the map from being
+  // dragged out to sea or into neighbouring countries, which also caps how
+  // many tiles ever get requested.
+  var ISRAEL_BOUNDS = L.latLngBounds([[29.3, 34.2], [33.4, 35.95]]);
+  var MIN_ZOOM = 7;
+  var MAX_ZOOM = 17;
+
   // Lucide icon paths (lucide.dev), inlined to avoid a runtime dependency
   // for content injected into Leaflet popups / list items.
   var ICON_PATHS = {
@@ -114,8 +122,14 @@
     zoom: hasUserLocation ? FOCUSED_ZOOM : DEFAULT_ZOOM,
   };
 
-  var map = L.map("map", { zoomControl: true, attributionControl: true })
-    .setView(DEFAULT_VIEW.center, DEFAULT_VIEW.zoom);
+  var map = L.map("map", {
+    zoomControl: true,
+    attributionControl: true,
+    maxBounds: ISRAEL_BOUNDS,
+    maxBoundsViscosity: 1.0,
+    minZoom: MIN_ZOOM,
+    maxZoom: MAX_ZOOM,
+  }).setView(DEFAULT_VIEW.center, DEFAULT_VIEW.zoom);
 
   addBaseTiles(map);
 
@@ -698,6 +712,9 @@
   window.EVMap = {
     mainMap: map,
     defaultView: DEFAULT_VIEW,
+    israelBounds: ISRAEL_BOUNDS,
+    minZoom: MIN_ZOOM,
+    maxZoom: MAX_ZOOM,
     getStations: function () { return allStations; },
     whenStationsReady: whenStationsReady,
     icon: icon,

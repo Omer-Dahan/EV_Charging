@@ -50,8 +50,14 @@
   var tripState = { origin: null, destination: null };
   var pickTarget = null;
 
-  var map = L.map("trip-map", { zoomControl: true, attributionControl: true })
-    .setView(EVMap.defaultView.center, EVMap.defaultView.zoom);
+  var map = L.map("trip-map", {
+    zoomControl: true,
+    attributionControl: true,
+    maxBounds: EVMap.israelBounds,
+    maxBoundsViscosity: 1.0,
+    minZoom: EVMap.minZoom,
+    maxZoom: EVMap.maxZoom,
+  }).setView(EVMap.defaultView.center, EVMap.defaultView.zoom);
 
   EVMap.addBaseTiles(map);
 
