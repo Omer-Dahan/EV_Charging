@@ -53,7 +53,7 @@ def export() -> None:
     rows = conn.execute(
         """
         SELECT id, name, address, city, lat, lng, provider_name,
-               max_per_kwh, connectors, is_gov_official
+               max_per_kwh, connectors, is_gov_official, approx
         FROM locations
         WHERE lat IS NOT NULL AND lng IS NOT NULL
         """
@@ -63,7 +63,7 @@ def export() -> None:
     stations = []
     for row in rows:
         connectors = short_connectors(row["connectors"])
-        stations.append({
+        station = {
             "id": row["id"],
             "n": row["name"],
             "a": row["address"],
@@ -75,7 +75,10 @@ def export() -> None:
             "mp": max_power(connectors),
             "cn": connectors,
             "g": 1 if row["is_gov_official"] == 1 else 0,
-        })
+        }
+        if row["approx"] == 1:
+            station["approx"] = 1
+        stations.append(station)
 
     OUT_PATH.write_text(
         json.dumps(stations, ensure_ascii=False, separators=(",", ":")),

@@ -60,3 +60,7 @@ package.json
 package-lock.json
 data/*.db-shm
 data/*.db-wal
+webapp/*.bak
+webapp/*.bak2
+data/*.bak
+data/location_audit_report_test.md
