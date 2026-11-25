@@ -168,11 +168,15 @@ The database consolidates 5 independent registries into a unified dataset:
 ## 🚀 Quick Start
 
 ```bash
-# 1 · Create and activate virtual environment
-python3.11 -m venv ~/venvs/ev-bot && source ~/venvs/ev-bot/bin/activate
+# 1 · Activate the environment
+#     This dev machine: the unified venv, never create a new one
+source ~/venvs/main/bin/activate
+#     Fresh server: python3.11 -m venv ~/venvs/ev-bot && source ~/venvs/ev-bot/bin/activate
 
-# 2 · Install dependencies
-pip install -r requirements.txt
+# 2 · Dependencies
+#     Fresh server: pip install -r requirements.txt
+#     This machine: already in ~/venvs/main (uv.lock in /mnt/ssd/shared/hermes-vm/pyenv);
+#     add new ones with: cd /mnt/ssd/shared/hermes-vm/pyenv && uv add <pkg>
 
 # 3 · Setup environment configuration
 cp .env.example .env

@@ -168,11 +168,15 @@ flowchart TD
 ## 🚀 הרצה מהירה
 
 ```bash
-# 1 · יצירת סביבה וירטואלית והפעלתה
-python3.11 -m venv ~/venvs/ev-bot && source ~/venvs/ev-bot/bin/activate
+# 1 · הפעלת הסביבה
+#     במכונת הפיתוח: הסביבה המאוחדת, לא יוצרים venv חדש
+source ~/venvs/main/bin/activate
+#     בשרת חדש: python3.11 -m venv ~/venvs/ev-bot && source ~/venvs/ev-bot/bin/activate
 
-# 2 · התקנת תלויות
-pip install -r requirements.txt
+# 2 · תלויות
+#     בשרת חדש: pip install -r requirements.txt
+#     במכונה הזו: כבר ב-~/venvs/main (uv.lock ב-/mnt/ssd/shared/hermes-vm/pyenv);
+#     תלות חדשה: cd /mnt/ssd/shared/hermes-vm/pyenv && uv add <pkg>
 
 # 3 · הגדרת קובץ סביבה
 cp .env.example .env
