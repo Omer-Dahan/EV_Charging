@@ -58,9 +58,17 @@ temp/
 node_modules/
 package.json
 package-lock.json
+
+# Offline tile pipeline: raw downloaded PNGs and packaged tile archives are
+# regenerable and go to a GitHub Release, not into git.
+tools/tiles/raw/
+tools/tiles/*.log
+tools/tiles/*.mbtiles
+tools/tiles/*.pmtiles
 data/*.db-shm
 data/*.db-wal
 webapp/*.bak
 webapp/*.bak2
 data/*.bak
 data/location_audit_report_test.md
+.agent-progress.md

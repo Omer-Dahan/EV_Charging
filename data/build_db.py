@@ -793,7 +793,7 @@ def fetch_paz_data() -> List[Dict[str, Any]]:
 
     # 2. Try scrapling venv via subprocess if not fetched yet
     if not raw_stations:
-        scrapling_python = os.path.expanduser("~/venvs/scrapling/bin/python3")
+        scrapling_python = os.path.expanduser("~/venvs/main/bin/python3")
         if os.path.exists(scrapling_python):
             try:
                 sub_code = (
